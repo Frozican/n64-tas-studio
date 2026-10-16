@@ -13,7 +13,7 @@ $('#app').innerHTML = `
 <header><div class="brand"><span class="logo">64</span><span>N64 <b>TAS STUDIO</b></span></div><div class="actions"><span class="status" id="coreStatus">● CORE NOT LOADED</span><button id="open">Open project</button><button class="primary" id="export">Export TAS</button><input hidden id="projectFile" type="file" accept=".json,.n64tas"></div></header>
 <main>
 <section class="hero"><div><small>FRAME-BY-FRAME WORKBENCH</small><h1>Make every frame <em>count.</em></h1><p>Plan controller inputs, edit a timeline and build reproducible N64 TAS projects.</p></div><label class="rom"><input hidden id="romFile" type="file" accept=".z64,.n64,.v64"><b>＋ Choose your own N64 ROM</b><span id="romName">.z64 · .n64 · .v64 · selected locally only</span></label></section>
-<div class="notice"><b>!</b><div><strong>Experimental N64 playback</strong><p>Timeline editing and cursor playback are available. EmulatorJS core stepping and deterministic input injection are not supported reliably yet, so timeline controls do not pretend to seek the live game.</p></div></div>
+<div class="notice"><b>!</b><div><strong>Experimental N64 playback</strong><p>Experimental TAS mode sends each selected timeline frame's controller inputs to EmulatorJS during playback. Single-frame stepping depends on EmulatorJS timing and is not guaranteed frame-perfect.</p></div></div>
 <section class="workspace">
 <article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>EmulatorJS · EXPERIMENTAL</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
 <article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
@@ -24,10 +24,10 @@ $('#app').innerHTML = `
 </main><div id="toast" role="status" aria-live="polite"></div>`;
 
 
-// EmulatorJS controller bridge. Inputs are sent to the running core when its
-// GameManager API is available. Frame stepping itself is not exposed by the
-// public EmulatorJS API, so the transport remains timeline playback, not true
-// deterministic core-level frame advance.
+// EmulatorJS controller bridge. Timeline playback injects inputs through
+// GameManager.simulateInput. EmulatorJS does not expose a documented, reliable
+// single-core-frame stepping API, so frame advance uses a short pause/run/pause
+// window and must not be described as deterministic frame-perfect stepping.
 const emulatorButtons = {
   B: 0, A: 8, Start: 3, '↑': 4, '↓': 5, '←': 6, '→': 7,
   L: 10, R: 11, Z: 12
@@ -157,8 +157,42 @@ function restoreCoreState(frameNumber) {
 }
 function advanceCoreOneFrame() {
   stop();
-  go(selected + 1);
-  toast('Timeline advanced by one frame. The live N64 core was not stepped; EmulatorJS does not expose a reliable single-frame API here.');
+  const manager = getGameManager();
+  if (!manager) {
+    go(selected + 1);
+    toast('No running N64 core: moved the editor cursor only.');
+    return;
+  }
+
+  // Apply the input for the frame we're about to advance, then briefly run the
+  // core and pause it again. This is best-effort only; browser scheduling and
+  // EmulatorJS threading can make the actual number of core frames vary.
+  const frame = ensureFrame(selected);
+  applyFrameToCore(frame);
+  stepping = true;
+  if (gamePaused && !setEmulatorPaused(false)) {
+    stepping = false;
+    return;
+  }
+  const before = typeof manager.getFrameNum === 'function' ? manager.getFrameNum() : null;
+  window.setTimeout(() => {
+    setEmulatorPaused(true);
+    stepping = false;
+    const after = typeof manager.getFrameNum === 'function' ? manager.getFrameNum() : null;
+    if (typeof before === 'number' && typeof after === 'number' && after > before) {
+      const advanced = Math.max(1, after - before);
+      selected += advanced;
+      ensureFrame(selected);
+      lastCoreFrame = after;
+      coreFrameOrigin = after - selected;
+      captureCoreState(selected);
+      render();
+      toast(advanced === 1 ? 'Advanced the live game by one reported core frame.' : 'Core advanced ' + advanced + ' frames; browser timing prevented an exact single-frame step.');
+    } else {
+      render();
+      toast('The core did not report a frame advance. EmulatorJS cannot guarantee single-frame stepping in this browser.');
+    }
+  }, 17);
 }
 function setCoreInput(index, value) {
   const gm = getGameManager();
@@ -363,24 +397,43 @@ $('#reset').addEventListener('click', () => {
   toast('Reset complete. Press Start N64 emulator to boot a fresh game instance.');
 });
 $('#play').addEventListener('click', () => {
-  if (getGameManager()) {
-    stop();
-    setEmulatorPaused(!gamePaused);
-    return;
-  }
   if (timer) {
     stop();
+    if (getGameManager() && !gamePaused) setEmulatorPaused(true);
     return;
   }
+
+  const manager = getGameManager();
+  if (!manager) {
+    timelinePlayback = true;
+    $('#play').textContent = 'Ⅱ Pause timeline';
+    timer = setInterval(() => {
+      const maxFrame = Math.max(...project.frames.map(item => item.frame), 0);
+      if (selected >= maxFrame) { stop(); return; }
+      go(selected + 1);
+    }, 1000 / 60);
+    return;
+  }
+
+  // Keep the game running while applying the input row corresponding to each
+  // editor frame. The timer drives input injection; the core monitor avoids
+  // moving the cursor independently while this timer is active.
   timelinePlayback = true;
-  $('#play').textContent = 'Ⅱ Pause timeline';
+  if (gamePaused && !setEmulatorPaused(false)) return;
+  $('#play').textContent = 'Ⅱ Pause TAS';
   timer = setInterval(() => {
+    const frame = ensureFrame(selected);
+    applyFrameToCore(frame);
+    captureCoreState(selected);
     const maxFrame = Math.max(...project.frames.map(item => item.frame), 0);
     if (selected >= maxFrame) {
       stop();
+      setEmulatorPaused(true);
       return;
     }
-    go(selected + 1);
+    selected += 1;
+    ensureFrame(selected);
+    render();
   }, 1000 / 60);
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
