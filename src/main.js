@@ -33,7 +33,23 @@ const emulatorButtons = {
   L: 10, R: 11, Z: 12, 'C↑': 13, 'C↓': 14, 'C←': 15, 'C→': 16
 };
 const activeCoreInputs = new Set();
-function getEmulator() {\n  try { return $('#emulatorPlayer iframe')?.contentWindow?.EJS_emulator || null; }\n  catch { return null; }\n}\nfunction setEmulatorPaused(paused) {\n  const emulator = getEmulator();\n  if (!emulator) { toast('Start the emulator first.'); return false; }\n  try {\n    if (paused && typeof emulator.pause === 'function') emulator.pause();\n    else if (!paused && typeof emulator.play === 'function') emulator.play();\n    else if (typeof emulator.gameManager?.toggleMainLoop === 'function') emulator.gameManager.toggleMainLoop(!paused);\n    else { toast('Pause control is not available in this EmulatorJS version.'); return false; }\n    $('#pauseEmulator').textContent = paused ? '▶ Resume game' : 'Ⅱ Pause game';\n    return true;\n  } catch { toast('Could not control emulator playback.'); return false; }\n}\nfunction getGameManager() {
+function getEmulator() {
+  try { return $('#emulatorPlayer iframe')?.contentWindow?.EJS_emulator || null; }
+  catch { return null; }
+}
+function setEmulatorPaused(paused) {
+  const emulator = getEmulator();
+  if (!emulator) { toast('Start the emulator first.'); return false; }
+  try {
+    if (paused && typeof emulator.pause === 'function') emulator.pause();
+    else if (!paused && typeof emulator.play === 'function') emulator.play();
+    else if (typeof emulator.gameManager?.toggleMainLoop === 'function') emulator.gameManager.toggleMainLoop(!paused);
+    else { toast('Pause control is not available in this EmulatorJS version.'); return false; }
+    $('#pauseEmulator').textContent = paused ? '▶ Resume game' : 'Ⅱ Pause game';
+    return true;
+  } catch { toast('Could not control emulator playback.'); return false; }
+}
+function getGameManager() {
   try { return $('#emulatorPlayer iframe')?.contentWindow?.EJS_emulator?.gameManager || null; }
   catch { return null; }
 }
