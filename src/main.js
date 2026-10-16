@@ -50,7 +50,7 @@ function render() {
   const start = Math.max(0, selected - 14);
   const end = Math.min(Math.max(project.frames.length - 1, selected + 18), start + 180);
   for (let index = start; index <= end; index++) {
-    const item = ensureFrame(index); const button = document.createElement('button');
+    const item = project.frames.find(frame => frame.frame === index) || createFrame(index); const button = document.createElement('button');
     button.className = 'cell' + (index === selected ? ' selected' : '') + ((item.buttons.length || item.stickX || item.stickY) ? ' filled' : '');
     button.textContent = index % 10 === 0 ? index : '';
     button.title = 'Frame ' + index + ': ' + item.buttons.join(', ');
