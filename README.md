@@ -4,16 +4,19 @@ Mobile-friendly browser workbench for Nintendo 64 TAS research. **Early prototyp
 
 ## Current prototype
 - Responsive UI for Android and desktop.
-- Select `.z64`, `.n64`, `.v64` ROM files locally (selection only; no emulation yet).
+- Select `.z64`, `.n64`, `.v64` ROM files locally and attempt to launch them using EmulatorJS (`n64` core) loaded from its public CDN.
 - Frame selection, per-frame button toggles, timeline play/pause (timeline only), analog X/Y values.
 - Project JSON import/export.
 - GitHub Pages deployment workflow.
 
 ## Roadmap
-1. Pin a browser-compatible N64 core and check its license/build process.
-2. Prove programmatic input injection and single-frame advance.
+1. Verify EmulatorJS boots correctly with legally obtained ROMs on desktop and Android.
+2. Investigate a core integration exposing programmatic input injection and single-frame advance; the current EmulatorJS launcher does not expose this API.
 3. Test replay repeatability under identical conditions.
 4. Add savestates, movie format compatibility, RAM watch and Android performance testing.
+
+## External runtime notice
+The current experimental integration loads EmulatorJS assets from `https://cdn.emulatorjs.org/stable/data/`. The page requires an internet connection to fetch those assets. Review EmulatorJS licensing and project requirements before redistribution.
 
 ## Local development
 Requires Node.js 22+:
