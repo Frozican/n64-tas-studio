@@ -380,22 +380,46 @@ $('#next').addEventListener('click', () => {
 });
 $('#reset').addEventListener('click', () => {
   stop();
-  const manager = getGameManager();
-  if (manager && typeof manager.restart === 'function') {
-    try {
-      manager.restart();
-      rewindHistory.clear();
-      lastCoreFrame = null;
-      coreFrameOrigin = null;
-      gamePaused = false;
-      setEmulatorPaused(true);
-      go(0);
-      toast('Game and timeline reset to frame 0.');
-      return;
-    } catch (error) { console.warn('Game restart failed:', error); }
+  rewindHistory.clear();
+  lastCoreFrame = null;
+  coreFrameOrigin = null;
+  selected = 0;
+  ensureFrame(0);
+  render();
+
+  // EmulatorJS' internal restart() is not reliable across builds and can
+  // freeze the core. Recreate the iframe instead, preserving the selected ROM.
+  if (!selectedRom) {
+    toast('Timeline reset to frame 0. Choose a ROM and start the game.');
+    return;
   }
-  go(0);
-  toast('Timeline reset only; this EmulatorJS core does not expose restart.');
+  const player = $('#emulatorPlayer iframe');
+  if (!player) {
+    emulatorStarted = false;
+    $('#emptyScreen').classList.remove('hidden');
+    const button = $('#startEmulator');
+    button.disabled = false;
+    button.textContent = '▶ Start N64 emulator';
+    $('#gameStatus').textContent = 'ROM READY';
+    $('#coreStatus').textContent = '● CORE NOT LOADED';
+    toast('Timeline reset. Start the emulator to boot the ROM again.');
+    return;
+  }
+
+  // Release the old runtime and boot a fresh EmulatorJS instance from the ROM.
+  gamePaused = true;
+  emulatorStarted = false;
+  activeCoreInputs.clear();
+  try { URL.revokeObjectURL(romObjectUrl); } catch {}
+  romObjectUrl = null;
+  $('#emulatorPlayer').replaceChildren();
+  $('#emptyScreen').classList.remove('hidden');
+  const button = $('#startEmulator');
+  button.disabled = false;
+  button.textContent = '▶ Start N64 emulator';
+  $('#gameStatus').textContent = 'ROM READY';
+  $('#coreStatus').textContent = '● CORE NOT LOADED';
+  toast('Reset complete. Press Start N64 emulator to boot a fresh game instance.');
 });
 $('#play').addEventListener('click', () => {
   const manager = getGameManager();
