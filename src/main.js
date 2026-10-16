@@ -77,6 +77,44 @@ function getGameManager() {
 
 // Step the running core by one reported frame, then pause it again.
 let stepping = false;
+let coreMonitor = null;
+let lastCoreFrame = null;
+let timelinePlayback = false;
+function startCoreMonitor() {
+  if (coreMonitor) clearInterval(coreMonitor);
+  coreMonitor = setInterval(() => {
+    const manager = getGameManager();
+    if (!manager || typeof manager.getFrameNum !== 'function') return;
+    let current;
+    try { current = manager.getFrameNum(); } catch { return; }
+    if (typeof current !== 'number' || !Number.isFinite(current)) return;
+    if (lastCoreFrame === null) {
+      lastCoreFrame = current;
+      return;
+    }
+    if (current === lastCoreFrame) return;
+    const delta = Math.max(1, Math.min(10, current - lastCoreFrame));
+    lastCoreFrame = current;
+    if (timelinePlayback) {
+      for (let i = 0; i < delta; i++) {
+        if (selected >= Math.max(...project.frames.map(item => item.frame), 0)) {
+          timelinePlayback = false;
+          $('#play').textContent = '▶ Play timeline';
+          releaseCoreInputs();
+          break;
+        }
+        selected += 1;
+        const frame = ensureFrame(selected);
+        applyFrameToCore(frame);
+      }
+    } else if (!gamePaused && !stepping) {
+      // Keep the editor's selected frame aligned with actual emulation.
+      selected = Math.max(0, current - (coreFrameOrigin ?? current));
+    }
+    render();
+  }, 8);
+}
+let coreFrameOrigin = null;
 function advanceCoreOneFrame(frame) {
   const manager = getGameManager();
   if (!manager || typeof manager.getFrameNum !== 'function' || typeof manager.toggleMainLoop !== 'function') {
@@ -92,6 +130,7 @@ function advanceCoreOneFrame(frame) {
     $('#pauseEmulator').textContent = '▶ Resume game';
     applyFrameToCore(frame);
     const before = manager.getFrameNum();
+    lastCoreFrame = before;
     manager.toggleMainLoop(1);
     const startedAt = Date.now();
     const poll = setInterval(() => {
@@ -146,7 +185,11 @@ function toast(message) {
   const element = $('#toast'); element.textContent = message; element.classList.add('show');
   clearTimeout(toast.timeout); toast.timeout = setTimeout(() => element.classList.remove('show'), 2400);
 }
-function stop() { clearInterval(timer); timer = null; $('#play').textContent = '▶ Play timeline'; releaseCoreInputs(); }
+function stop() {
+  clearInterval(timer); timer = null; timelinePlayback = false;
+  $('#play').textContent = '▶ Play timeline';
+  releaseCoreInputs();
+}
 function go(index) { selected = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0))); const frame = ensureFrame(selected); render(); if (timer) applyFrameToCore(frame); }
 function render() {
   const frame = ensureFrame(selected);
@@ -185,14 +228,29 @@ $('#y').addEventListener('change', event => { ensureFrame(selected).stickY = Mat
 $('#name').addEventListener('input', event => { project.name = event.target.value.slice(0,80); project.updatedAt = new Date().toISOString(); });
 $('#jump').addEventListener('change', event => go(event.target.value));
 $('#zoom').addEventListener('input', render);
-$('#prev').addEventListener('click', () => go(selected-1));
+$('#prev').addEventListener('click', () => {
+  stop();
+  if (!gamePaused) setEmulatorPaused(true);
+  go(selected - 1);
+  toast('Timeline moved back. The game state itself cannot rewind yet.');
+});
 $('#next').addEventListener('click', () => { const frame = ensureFrame(selected + 1); go(selected + 1); advanceCoreOneFrame(frame); });
 $('#reset').addEventListener('click', () => { stop(); go(0); });
 $('#pauseEmulator').addEventListener('click', () => setEmulatorPaused(!gamePaused));
 $('#play').addEventListener('click', () => {
-  if (timer) { stop(); return; }
+  if (timelinePlayback) { stop(); return; }
+  const manager = getGameManager();
+  if (!manager || typeof manager.getFrameNum !== 'function') {
+    toast('Start the N64 game and wait for the core before TAS playback.');
+    return;
+  }
+  try {
+    lastCoreFrame = manager.getFrameNum();
+    coreFrameOrigin = lastCoreFrame - selected;
+  } catch {}
+  timelinePlayback = true;
   $('#play').textContent = 'Ⅱ Pause timeline';
-  timer = setInterval(() => { if (selected >= Math.max(...project.frames.map(item => item.frame), 0)) { stop(); return; } go(selected+1); }, 1000/60);
+  if (gamePaused) setEmulatorPaused(false);
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
 $('#add60').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+60));
@@ -233,6 +291,7 @@ $('#startEmulator').addEventListener('click', () => {
     toast('EmulatorJS failed to load. Check connection and retry.');
   });
   $('#emulatorPlayer').replaceChildren(player);
+  player.addEventListener('load', () => startCoreMonitor(), { once: true });
   toast('EmulatorJS is loading. First boot may take a while.');
 });
 $('#export').addEventListener('click', () => {
