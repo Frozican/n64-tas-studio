@@ -72,8 +72,48 @@ function setEmulatorPaused(paused) {
   }
 }
 function getGameManager() {
-  try { return $('#emulatorPlayer iframe')?.contentWindow?.EJS_emulator?.gameManager || null; }
-  catch { return null; }
+  return getEmulator()?.gameManager || null;
+}
+
+// Step the running core by one reported frame, then pause it again.
+let stepping = false;
+function advanceCoreOneFrame(frame) {
+  const manager = getGameManager();
+  if (!manager || typeof manager.getFrameNum !== 'function' || typeof manager.toggleMainLoop !== 'function') {
+    toast('Frame advance is unavailable until the N64 core has fully started.');
+    return;
+  }
+  if (stepping) return;
+  stepping = true;
+  stop();
+  try {
+    manager.toggleMainLoop(0);
+    gamePaused = true;
+    $('#pauseEmulator').textContent = '▶ Resume game';
+    applyFrameToCore(frame);
+    const before = manager.getFrameNum();
+    manager.toggleMainLoop(1);
+    const startedAt = Date.now();
+    const poll = setInterval(() => {
+      let current = before;
+      try { current = manager.getFrameNum(); } catch {}
+      if (current > before || Date.now() - startedAt > 500) {
+        clearInterval(poll);
+        try { manager.toggleMainLoop(0); } catch {}
+        gamePaused = true;
+        $('#pauseEmulator').textContent = '▶ Resume game';
+        stepping = false;
+        if (current <= before) toast('Core did not report a frame advance. Try again after the game is running.');
+      }
+    }, 4);
+  } catch (error) {
+    stepping = false;
+    gamePaused = true;
+    $('#pauseEmulator').textContent = '▶ Resume game';
+    try { manager.toggleMainLoop(0); } catch {}
+    console.error('Frame advance failed:', error);
+    toast('Could not advance the emulator by one frame.');
+  }
 }
 function setCoreInput(index, value) {
   const gm = getGameManager();
@@ -146,7 +186,7 @@ $('#name').addEventListener('input', event => { project.name = event.target.valu
 $('#jump').addEventListener('change', event => go(event.target.value));
 $('#zoom').addEventListener('input', render);
 $('#prev').addEventListener('click', () => go(selected-1));
-$('#next').addEventListener('click', () => go(selected+1));
+$('#next').addEventListener('click', () => { const frame = ensureFrame(selected + 1); go(selected + 1); advanceCoreOneFrame(frame); });
 $('#reset').addEventListener('click', () => { stop(); go(0); });
 $('#pauseEmulator').addEventListener('click', () => setEmulatorPaused(!gamePaused));
 $('#play').addEventListener('click', () => {
