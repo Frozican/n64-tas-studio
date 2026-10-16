@@ -259,7 +259,7 @@ function render() {
 function toggle(buttonName) {
   const frame = ensureFrame(selected);
   frame.buttons = frame.buttons.includes(buttonName) ? frame.buttons.filter(item => item !== buttonName) : [...frame.buttons, buttonName];
-  project.updatedAt = new Date().toISOString(); render(); if (timer) applyFrameToCore(frame);
+  project.updatedAt = new Date().toISOString(); render();
 }
 document.querySelectorAll('[data-b]').forEach(button => button.addEventListener('click', () => toggle(button.dataset.b)));
 function setStick(x, y) {
@@ -268,7 +268,6 @@ function setStick(x, y) {
   frame.stickY = Math.max(-128, Math.min(127, Math.round(y)));
   project.updatedAt = new Date().toISOString();
   render();
-  if (timer) applyFrameToCore(frame);
 }
 $('#x').addEventListener('change', event => { setStick(Number(event.target.value) || 0, ensureFrame(selected).stickY); });
 $('#y').addEventListener('change', event => { setStick(ensureFrame(selected).stickX, Number(event.target.value) || 0); });
@@ -372,7 +371,7 @@ $('#play').addEventListener('click', () => {
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
 $('#add60').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+60));
-$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); if (timer) applyFrameToCore(frame); });
+$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); });
 $('#romFile').addEventListener('change', event => {
   const file = event.target.files?.[0]; if (!file) return;
   selectedRom = file;
