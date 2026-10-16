@@ -386,6 +386,9 @@ $('#startEmulator').addEventListener('click', () => {
   if (emulatorStarted) { toast('Emulator is already running. Reload the page to start another ROM.'); return; }
   const button = $('#startEmulator');
   button.disabled = true; button.textContent = 'Loading emulator…';
+  gamePaused = false;
+  lastCoreFrame = null;
+  coreFrameOrigin = null;
   $('#coreStatus').textContent = '● LOADING EMULATORJS';
   $('#gameStatus').textContent = 'LOADING CORE';
   romObjectUrl = URL.createObjectURL(selectedRom);
