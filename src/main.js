@@ -267,14 +267,30 @@ function render() {
   const start = Math.max(0, selected - 14);
   const end = Math.min(Math.max(project.frames.length - 1, selected + 18), start + 180);
   for (let index = start; index <= end; index++) {
-    const item = project.frames.find(frame => frame.frame === index) || createFrame(index); const button = document.createElement('button');
-    button.className = 'cell' + (index === selected ? ' selected' : '') + ((item.buttons.length || item.stickX || item.stickY) ? ' filled' : '');
-    button.textContent = index % 10 === 0 ? index : '';
-    button.title = 'Frame ' + index + (item.buttons.length ? ': ' + item.buttons.join(', ') : '') + ' · Stick X ' + item.stickX + ' Y ' + item.stickY;
-    if (item.stickX || item.stickY) button.dataset.stick = 'true';
-    if (item.buttons.length) button.dataset.buttons = item.buttons.join(',');
-    button.setAttribute('aria-label', 'Select frame ' + index);
-    button.onclick = () => go(index); cells.append(button);
+    const item = project.frames.find(frame => frame.frame === index) || createFrame(index);
+    const button = document.createElement('button');
+    const hasInput = item.buttons.length || item.stickX || item.stickY;
+    button.className = 'cell timeline-row' + (index === selected ? ' selected' : '') + (hasInput ? ' filled' : '');
+    const frameNumber = document.createElement('span');
+    frameNumber.className = 'timeline-frame-number';
+    frameNumber.textContent = String(index).padStart(6, '0');
+    const digital = document.createElement('span');
+    digital.className = 'timeline-digital';
+    const buttons = item.buttons.length ? item.buttons : [];
+    digital.textContent = buttons.length ? buttons.join(' · ') : '—';
+    digital.classList.toggle('no-input', !buttons.length);
+    const analog = document.createElement('span');
+    analog.className = 'timeline-analog';
+    analog.textContent = 'X ' + item.stickX + '  Y ' + item.stickY;
+    if (item.stickX || item.stickY) analog.classList.add('has-stick');
+    const state = document.createElement('span');
+    state.className = 'timeline-state';
+    state.textContent = hasInput ? 'INPUT' : '—';
+    button.append(frameNumber, digital, analog, state);
+    button.title = 'Frame ' + index + ' · Buttons: ' + (buttons.join(', ') || 'none') + ' · Stick X ' + item.stickX + ', Y ' + item.stickY;
+    button.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (buttons.join(', ') || 'none') + '. Stick X ' + item.stickX + ', Y ' + item.stickY);
+    button.onclick = () => go(index);
+    cells.append(button);
   }
 }
 function toggle(buttonName) {
