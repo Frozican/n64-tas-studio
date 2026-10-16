@@ -18,7 +18,7 @@ $('#app').innerHTML = `
 <article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>EmulatorJS · EXPERIMENTAL</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="pauseEmulator">Ⅱ Pause game</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
 <article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
 </section>
-<section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span>Select a cell to edit its input</span><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
+<section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span>Select a cell to edit its input</span><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
 <section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>EmulatorJS launcher; normal play only</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
@@ -256,14 +256,23 @@ function render() {
     button.classList.toggle('active', frame.buttons.includes(button.dataset.b));
     button.setAttribute('aria-pressed', String(frame.buttons.includes(button.dataset.b)));
   });
-  const cells = $('#cells'); cells.style.setProperty('--cell', (24 + Number($('#zoom').value)*8) + 'px'); cells.innerHTML = '';
+  const cells = $('#cells'); cells.style.setProperty('--cell', (28 + Number($('#zoom').value)*10) + 'px'); cells.innerHTML = '';
+  $('#timelineX').textContent = frame.stickX;
+  $('#timelineY').textContent = frame.stickY;
+  const knob = $('#timelineKnob');
+  knob.style.left = (50 + frame.stickX / 127 * 38) + '%';
+  knob.style.top = (50 - frame.stickY / 127 * 38) + '%';
+  $('#timelineStick').setAttribute('aria-valuenow', String(frame.stickX));
+  $('#timelineStick').setAttribute('aria-valuetext', 'X ' + frame.stickX + ', Y ' + frame.stickY);
   const start = Math.max(0, selected - 14);
   const end = Math.min(Math.max(project.frames.length - 1, selected + 18), start + 180);
   for (let index = start; index <= end; index++) {
     const item = project.frames.find(frame => frame.frame === index) || createFrame(index); const button = document.createElement('button');
     button.className = 'cell' + (index === selected ? ' selected' : '') + ((item.buttons.length || item.stickX || item.stickY) ? ' filled' : '');
     button.textContent = index % 10 === 0 ? index : '';
-    button.title = 'Frame ' + index + ': ' + item.buttons.join(', ');
+    button.title = 'Frame ' + index + (item.buttons.length ? ': ' + item.buttons.join(', ') : '') + ' · Stick X ' + item.stickX + ' Y ' + item.stickY;
+    if (item.stickX || item.stickY) button.dataset.stick = 'true';
+    if (item.buttons.length) button.dataset.buttons = item.buttons.join(',');
     button.setAttribute('aria-label', 'Select frame ' + index);
     button.onclick = () => go(index); cells.append(button);
   }
@@ -274,8 +283,46 @@ function toggle(buttonName) {
   project.updatedAt = new Date().toISOString(); render(); if (timer) applyFrameToCore(frame);
 }
 document.querySelectorAll('[data-b]').forEach(button => button.addEventListener('click', () => toggle(button.dataset.b)));
-$('#x').addEventListener('change', event => { ensureFrame(selected).stickX = Math.max(-128, Math.min(127, Math.round(Number(event.target.value)||0))); render(); });
-$('#y').addEventListener('change', event => { ensureFrame(selected).stickY = Math.max(-128, Math.min(127, Math.round(Number(event.target.value)||0))); render(); });
+function setStick(x, y) {
+  const frame = ensureFrame(selected);
+  frame.stickX = Math.max(-128, Math.min(127, Math.round(x)));
+  frame.stickY = Math.max(-128, Math.min(127, Math.round(y)));
+  project.updatedAt = new Date().toISOString();
+  render();
+  if (timelinePlayback) applyFrameToCore(frame);
+}
+$('#x').addEventListener('change', event => { setStick(Number(event.target.value) || 0, ensureFrame(selected).stickY); });
+$('#y').addEventListener('change', event => { setStick(ensureFrame(selected).stickX, Number(event.target.value) || 0); });
+const timelineStick = $('#timelineStick');
+let draggingStick = false;
+function updateStickFromPointer(event) {
+  const rect = timelineStick.getBoundingClientRect();
+  const radius = Math.min(rect.width, rect.height) * 0.38;
+  const dx = Math.max(-radius, Math.min(radius, event.clientX - (rect.left + rect.width / 2)));
+  const dy = Math.max(-radius, Math.min(radius, event.clientY - (rect.top + rect.height / 2)));
+  setStick(dx / radius * 127, -dy / radius * 127);
+}
+timelineStick.addEventListener('pointerdown', event => {
+  draggingStick = true;
+  timelineStick.setPointerCapture(event.pointerId);
+  updateStickFromPointer(event);
+});
+timelineStick.addEventListener('pointermove', event => { if (draggingStick) updateStickFromPointer(event); });
+timelineStick.addEventListener('pointerup', () => { draggingStick = false; });
+timelineStick.addEventListener('pointercancel', () => { draggingStick = false; });
+timelineStick.addEventListener('keydown', event => {
+  const frame = ensureFrame(selected);
+  const step = event.shiftKey ? 32 : 16;
+  let x = frame.stickX, y = frame.stickY;
+  if (event.key === 'ArrowLeft') x -= step;
+  else if (event.key === 'ArrowRight') x += step;
+  else if (event.key === 'ArrowUp') y += step;
+  else if (event.key === 'ArrowDown') y -= step;
+  else if (event.key === 'Home') { x = 0; y = 0; }
+  else return;
+  event.preventDefault(); setStick(x, y);
+});
+$('#stickCenter').addEventListener('click', () => setStick(0, 0));
 $('#name').addEventListener('input', event => { project.name = event.target.value.slice(0,80); project.updatedAt = new Date().toISOString(); });
 $('#jump').addEventListener('change', event => go(event.target.value));
 $('#zoom').addEventListener('input', render);
