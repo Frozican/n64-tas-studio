@@ -23,6 +23,41 @@ $('#app').innerHTML = `
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
 
+
+// EmulatorJS controller bridge. Inputs are sent to the running core when its
+// GameManager API is available. Frame stepping itself is not exposed by the
+// public EmulatorJS API, so the transport remains timeline playback, not true
+// deterministic core-level frame advance.
+const emulatorButtons = {
+  B: 0, A: 8, Start: 3, '↑': 4, '↓': 5, '←': 6, '→': 7,
+  L: 10, R: 11, Z: 12, 'C↑': 13, 'C↓': 14, 'C←': 15, 'C→': 16
+};
+const activeCoreInputs = new Set();
+function getGameManager() {
+  try { return $('#emulatorPlayer iframe')?.contentWindow?.EJS_emulator?.gameManager || null; }
+  catch { return null; }
+}
+function setCoreInput(index, value) {
+  const gm = getGameManager();
+  if (!gm || typeof gm.simulateInput !== 'function') return false;
+  try { gm.simulateInput(0, index, value); return true; } catch { return false; }
+}
+function releaseCoreInputs() {
+  activeCoreInputs.forEach(index => setCoreInput(index, 0));
+  activeCoreInputs.clear();
+}
+function applyFrameToCore(frame) {
+  releaseCoreInputs();
+  if (!frame) return;
+  frame.buttons.forEach(name => {
+    const index = emulatorButtons[name];
+    if (index !== undefined && setCoreInput(index, 1)) activeCoreInputs.add(index);
+  });
+  // RetroArch analog axis indices are 16/17; values use signed 16-bit range.
+  if (setCoreInput(16, Math.round(frame.stickX / 127 * 32767))) activeCoreInputs.add(16);
+  if (setCoreInput(17, Math.round(-frame.stickY / 127 * 32767))) activeCoreInputs.add(17);
+}
+
 function ensureFrame(index) {
   while (project.frames.length <= index) project.frames.push(createFrame(project.frames.length));
   let frame = project.frames.find(item => item.frame === index);
@@ -33,8 +68,8 @@ function toast(message) {
   const element = $('#toast'); element.textContent = message; element.classList.add('show');
   clearTimeout(toast.timeout); toast.timeout = setTimeout(() => element.classList.remove('show'), 2400);
 }
-function stop() { clearInterval(timer); timer = null; $('#play').textContent = '▶ Play timeline'; }
-function go(index) { selected = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0))); ensureFrame(selected); render(); }
+function stop() { clearInterval(timer); timer = null; $('#play').textContent = '▶ Play timeline'; releaseCoreInputs(); }
+function go(index) { selected = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0))); const frame = ensureFrame(selected); render(); if (timer) applyFrameToCore(frame); }
 function render() {
   const frame = ensureFrame(selected);
   $('#frameNo').textContent = String(selected).padStart(6, '0');
@@ -64,7 +99,7 @@ function render() {
 function toggle(buttonName) {
   const frame = ensureFrame(selected);
   frame.buttons = frame.buttons.includes(buttonName) ? frame.buttons.filter(item => item !== buttonName) : [...frame.buttons, buttonName];
-  project.updatedAt = new Date().toISOString(); render();
+  project.updatedAt = new Date().toISOString(); render(); if (timer) applyFrameToCore(frame);
 }
 document.querySelectorAll('[data-b]').forEach(button => button.addEventListener('click', () => toggle(button.dataset.b)));
 $('#x').addEventListener('change', event => { ensureFrame(selected).stickX = Math.max(-128, Math.min(127, Math.round(Number(event.target.value)||0))); render(); });
@@ -82,7 +117,7 @@ $('#play').addEventListener('click', () => {
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
 $('#add60').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+60));
-$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); });
+$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); if (timer) applyFrameToCore(frame); });
 $('#romFile').addEventListener('change', event => {
   const file = event.target.files?.[0]; if (!file) return;
   selectedRom = file;
