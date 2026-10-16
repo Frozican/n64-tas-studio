@@ -441,11 +441,15 @@ $('#play').addEventListener('click', () => {
 
   const manager = getGameManager();
   if (!manager) {
+    const playbackEnd = Math.max(...project.frames.map(item => item.frame), 0);
+    if (selected >= playbackEnd) {
+      toast('No frames after the selected frame. Add frames or select an earlier frame first.');
+      return;
+    }
     timelinePlayback = true;
     $('#play').textContent = 'Ⅱ Pause timeline';
     timer = setInterval(() => {
-      const maxFrame = Math.max(...project.frames.map(item => item.frame), 0);
-      if (selected >= maxFrame) { stop(); return; }
+      if (selected >= playbackEnd) { stop(); return; }
       go(selected + 1);
     }, 1000 / 60);
     return;
@@ -458,13 +462,22 @@ $('#play').addEventListener('click', () => {
   timelinePlayback = true;
   if (gamePaused && !setEmulatorPaused(false)) return;
   $('#play').textContent = 'Ⅱ Pause TAS';
+  // Freeze the end frame before playback. Do not calculate it after
+  // ensureFrame(), because that creates the current frame and would make the
+  // end frame follow the cursor, stopping playback on its first tick.
+  const playbackEnd = Math.max(...project.frames.map(item => item.frame), 0);
+  if (selected >= playbackEnd) {
+    stop();
+    setEmulatorPaused(true);
+    toast('No frames after the selected frame. Add frames or select an earlier frame first.');
+    return;
+  }
   // Give the emulator a chance to receive focus before injecting its first input.
   timer = setInterval(() => {
     const frame = ensureFrame(selected);
     applyFrameToCore(frame);
     captureCoreState(selected);
-    const maxFrame = Math.max(...project.frames.map(item => item.frame), 0);
-    if (selected >= maxFrame) {
+    if (selected >= playbackEnd) {
       stop();
       setEmulatorPaused(true);
       return;
