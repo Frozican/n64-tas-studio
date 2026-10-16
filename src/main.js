@@ -99,6 +99,11 @@ function startCoreMonitor() {
     if (!gamePaused && !stepping) {
       const logicalFrame = Math.max(0, current - (coreFrameOrigin ?? current));
       captureCoreState(logicalFrame);
+      if (!timer) {
+        selected = logicalFrame;
+        ensureFrame(selected);
+        render();
+      }
     }
   }, 16);
 }
@@ -305,11 +310,15 @@ $('#name').addEventListener('input', event => { project.name = event.target.valu
 $('#jump').addEventListener('change', event => go(event.target.value));
 $('#zoom').addEventListener('input', render);
 $('#prev').addEventListener('click', () => {
+  if (!gamePaused && getGameManager()) setEmulatorPaused(true);
   stop();
   go(Math.max(0, selected - 1));
   toast('Timeline moved back one frame. The live game state was not changed.');
 });
-$('#next').addEventListener('click', () => advanceCoreOneFrame());
+$('#next').addEventListener('click', () => {
+  if (!gamePaused && getGameManager()) setEmulatorPaused(true);
+  advanceCoreOneFrame();
+});
 $('#reset').addEventListener('click', () => {
   stop();
   rewindHistory.clear();
@@ -354,6 +363,11 @@ $('#reset').addEventListener('click', () => {
   toast('Reset complete. Press Start N64 emulator to boot a fresh game instance.');
 });
 $('#play').addEventListener('click', () => {
+  if (getGameManager()) {
+    stop();
+    setEmulatorPaused(!gamePaused);
+    return;
+  }
   if (timer) {
     stop();
     return;
