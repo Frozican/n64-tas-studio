@@ -148,6 +148,7 @@ $('#zoom').addEventListener('input', render);
 $('#prev').addEventListener('click', () => go(selected-1));
 $('#next').addEventListener('click', () => go(selected+1));
 $('#reset').addEventListener('click', () => { stop(); go(0); });
+$('#pauseEmulator').addEventListener('click', () => setEmulatorPaused(!gamePaused));
 $('#play').addEventListener('click', () => {
   if (timer) { stop(); return; }
   $('#play').textContent = 'Ⅱ Pause timeline';
