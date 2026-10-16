@@ -191,7 +191,7 @@ function advanceCoreOneFrame(frame) {
         clearInterval(poll);
         try { manager.toggleMainLoop(0); } catch {}
         gamePaused = true;
-        $('#pauseEmulator').textContent = '▶ Resume game';
+        $('#play').textContent = '▶ Play';
         stepping = false;
         if (current <= before) toast('Core did not report a frame advance. Try again after the game is running.');
       }
@@ -199,7 +199,7 @@ function advanceCoreOneFrame(frame) {
   } catch (error) {
     stepping = false;
     gamePaused = true;
-    $('#pauseEmulator').textContent = '▶ Resume game';
+    $('#play').textContent = '▶ Play';
     try { manager.toggleMainLoop(0); } catch {}
     console.error('Frame advance failed:', error);
     toast('Could not advance the emulator by one frame.');
