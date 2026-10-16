@@ -105,7 +105,7 @@ $('#startEmulator').addEventListener('click', () => {
   player.allow = 'autoplay; fullscreen; gamepad';
   player.setAttribute('allowfullscreen', '');
   player.className = 'emulatorFrame';
-  player.srcdoc = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#game{margin:0;width:100%;height:100%;background:#05070b;overflow:hidden}#game{width:100%;height:100%}</style></head><body><div id="game"></div><script>window.EJS_player='#game';window.EJS_core='n64';window.EJS_gameUrl=${JSON.stringify(romObjectUrl)};window.EJS_pathtodata='https://cdn.emulatorjs.org/stable/data/';window.EJS_startOnLoaded=true;window.EJS_gameName=${JSON.stringify(gameName)};window.EJS_language='en-US';</script><script src="https://cdn.emulatorjs.org/stable/data/loader.js"><\\/script></body></html>`;
+  player.srcdoc = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#game{margin:0;width:100%;height:100%;background:#05070b;overflow:hidden}#game{width:100%;height:100%}</style></head><body><div id="game"></div><script>window.EJS_player='#game';window.EJS_core='n64';window.EJS_gameUrl=${JSON.stringify(romObjectUrl)};window.EJS_pathtodata='https://cdn.emulatorjs.org/stable/data/';window.EJS_startOnLoaded=true;window.EJS_gameName=${JSON.stringify(gameName)};window.EJS_language='en-US';</script><script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script></body></html>`;
   player.addEventListener('load', () => {
     emulatorStarted = true;
     $('#emptyScreen').classList.add('hidden');
