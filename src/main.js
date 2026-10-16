@@ -15,7 +15,7 @@ $('#app').innerHTML = `
 <section class="hero"><div><small>FRAME-BY-FRAME WORKBENCH</small><h1>Make every frame <em>count.</em></h1><p>Plan controller inputs, edit a timeline and build reproducible N64 TAS projects.</p></div><label class="rom"><input hidden id="romFile" type="file" accept=".z64,.n64,.v64"><b>＋ Choose your own N64 ROM</b><span id="romName">.z64 · .n64 · .v64 · selected locally only</span></label></section>
 <div class="notice"><b>!</b><div><strong>Experimental N64 playback</strong><p>EmulatorJS is used for a first playable-core test. True frame advance and direct TAS input injection are not connected yet.</p></div></div>
 <section class="workspace">
-<article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>EmulatorJS · EXPERIMENTAL</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="pauseEmulator">Ⅱ Pause game</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
+<article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>EmulatorJS · EXPERIMENTAL</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
 <article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
 </section>
 <section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span>Select a cell to edit its input</span><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
@@ -63,7 +63,7 @@ function setEmulatorPaused(paused) {
       return false;
     }
     gamePaused = paused;
-    $('#pauseEmulator').textContent = paused ? '▶ Resume game' : 'Ⅱ Pause game';
+    $('#play').textContent = paused ? '▶ Play' : 'Ⅱ Pause';
     return true;
   } catch (error) {
     console.error('Emulator pause/resume failed:', error);
@@ -103,7 +103,7 @@ function startCoreMonitor() {
       for (let i = 0; i < delta; i++) {
         if (selected >= Math.max(...project.frames.map(item => item.frame), 0)) {
           timelinePlayback = false;
-          $('#play').textContent = '▶ Play timeline';
+          $('#play').textContent = '▶ Play';
           releaseCoreInputs();
           break;
         }
@@ -178,7 +178,7 @@ function advanceCoreOneFrame(frame) {
   try {
     manager.toggleMainLoop(0);
     gamePaused = true;
-    $('#pauseEmulator').textContent = '▶ Resume game';
+    $('#play').textContent = '▶ Play';
     applyFrameToCore(frame);
     const before = manager.getFrameNum();
     lastCoreFrame = before;
@@ -241,7 +241,18 @@ function stop() {
   $('#play').textContent = '▶ Play timeline';
   releaseCoreInputs();
 }
-function go(index) { selected = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0))); const frame = ensureFrame(selected); render(); if (timer) applyFrameToCore(frame); }
+function go(index) { selected = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0))); ensureFrame(selected); render(); }
+function selectTimelineFrame(index) {
+  stop();
+  if (getGameManager() && !gamePaused) setEmulatorPaused(true);
+  go(index);
+  if (!getGameManager()) return;
+  if (restoreCoreState(selected)) {
+    toast('Game and timeline moved to frame ' + selected + '.');
+  } else {
+    toast('Frame selected, but no game-state snapshot exists for this frame. Play from an earlier frame to build rewind history.');
+  }
+}
 function render() {
   const frame = ensureFrame(selected);
   $('#frameNo').textContent = String(selected).padStart(6, '0');
@@ -296,7 +307,7 @@ function render() {
     row.append(analog);
     row.title = 'Frame ' + index + ' · Buttons: ' + (item.buttons.join(', ') || 'none') + ' · Stick X ' + item.stickX + ', Y ' + item.stickY;
     row.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (item.buttons.join(', ') || 'none') + '. Stick X ' + item.stickX + ', Y ' + item.stickY);
-    row.onclick = () => go(index);
+    row.onclick = () => selectTimelineFrame(index);
     cells.append(row);
   }
 }
@@ -360,7 +371,13 @@ $('#prev').addEventListener('click', () => {
     toast('No rewind snapshot for this frame yet. Play from this point first.');
   }
 });
-$('#next').addEventListener('click', () => { const frame = ensureFrame(selected + 1); go(selected + 1); advanceCoreOneFrame(frame); });
+$('#next').addEventListener('click', () => {
+  const target = selected + 1;
+  stop();
+  if (!gamePaused && getGameManager()) setEmulatorPaused(true);
+  go(target);
+  if (!restoreCoreState(target)) toast('No saved game state for frame ' + target + '. Play from an earlier frame first.');
+});
 $('#reset').addEventListener('click', () => {
   stop();
   const manager = getGameManager();
@@ -371,21 +388,29 @@ $('#reset').addEventListener('click', () => {
       lastCoreFrame = null;
       coreFrameOrigin = null;
       gamePaused = false;
-      $('#pauseEmulator').textContent = 'Ⅱ Pause game';
+      setEmulatorPaused(true);
       go(0);
-      toast('Game restarted. Rewind history cleared.');
+      toast('Game and timeline reset to frame 0.');
       return;
     } catch (error) { console.warn('Game restart failed:', error); }
   }
   go(0);
-  toast('Timeline reset. Game core restart is unavailable in this build.');
+  toast('Timeline reset only; this EmulatorJS core does not expose restart.');
 });
-$('#pauseEmulator').addEventListener('click', () => setEmulatorPaused(!gamePaused));
 $('#play').addEventListener('click', () => {
-  if (timelinePlayback) { stop(); return; }
   const manager = getGameManager();
-  if (!manager || typeof manager.getFrameNum !== 'function') {
-    toast('Start the N64 game and wait for the core before TAS playback.');
+  if (!manager) {
+    toast('Start the N64 game first.');
+    return;
+  }
+  if (timelinePlayback || !gamePaused) {
+    stop();
+    if (!gamePaused) setEmulatorPaused(true);
+    $('#play').textContent = '▶ Play';
+    return;
+  }
+  if (typeof manager.getFrameNum !== 'function') {
+    toast('The emulator core is still starting.');
     return;
   }
   try {
@@ -393,7 +418,7 @@ $('#play').addEventListener('click', () => {
     coreFrameOrigin = lastCoreFrame - selected;
   } catch {}
   timelinePlayback = true;
-  $('#play').textContent = 'Ⅱ Pause timeline';
+  $('#play').textContent = 'Ⅱ Pause';
   if (gamePaused) setEmulatorPaused(false);
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
