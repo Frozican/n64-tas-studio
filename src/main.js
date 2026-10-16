@@ -93,8 +93,12 @@ function startCoreMonitor() {
       return;
     }
     if (current === lastCoreFrame) return;
+    const previousCoreFrame = lastCoreFrame;
     const delta = Math.max(1, Math.min(10, current - lastCoreFrame));
     lastCoreFrame = current;
+    if (current > previousCoreFrame && !gamePaused && !stepping) {
+      captureCoreState(Math.max(0, current - (coreFrameOrigin ?? current)));
+    }
     if (timelinePlayback) {
       for (let i = 0; i < delta; i++) {
         if (selected >= Math.max(...project.frames.map(item => item.frame), 0)) {
@@ -115,6 +119,53 @@ function startCoreMonitor() {
   }, 8);
 }
 let coreFrameOrigin = null;
+// Short in-memory rewind history. Emulator state and cartridge save RAM are
+// captured together so rewinding doesn't leave the game's save data in the future.
+const rewindHistory = new Map();
+const MAX_REWIND_FRAMES = 180;
+function copyBytes(value) {
+  if (!value) return null;
+  try { return new Uint8Array(value); } catch { return null; }
+}
+function captureCoreState(frameNumber) {
+  const manager = getGameManager();
+  if (!manager || typeof manager.getState !== 'function') return false;
+  try {
+    const state = copyBytes(manager.getState());
+    if (!state || !state.length) return false;
+    let saveRam = null;
+    try { saveRam = copyBytes(manager.getSaveFile(false)); } catch {}
+    rewindHistory.set(frameNumber, { state, saveRam });
+    while (rewindHistory.size > MAX_REWIND_FRAMES) {
+      rewindHistory.delete(rewindHistory.keys().next().value);
+    }
+    return true;
+  } catch (error) {
+    console.warn('Could not capture rewind state:', error);
+    return false;
+  }
+}
+function restoreCoreState(frameNumber) {
+  const manager = getGameManager();
+  const snapshot = rewindHistory.get(frameNumber);
+  if (!manager || !snapshot || typeof manager.loadState !== 'function') return false;
+  try {
+    if (snapshot.saveRam && manager.FS && typeof manager.getSaveFilePath === 'function') {
+      const path = manager.getSaveFilePath();
+      if (path) {
+        manager.FS.writeFile(path, copyBytes(snapshot.saveRam));
+        if (typeof manager.loadSaveFiles === 'function') manager.loadSaveFiles();
+      }
+    }
+    manager.loadState(copyBytes(snapshot.state));
+    lastCoreFrame = typeof manager.getFrameNum === 'function' ? manager.getFrameNum() : null;
+    coreFrameOrigin = lastCoreFrame === null ? null : lastCoreFrame - frameNumber;
+    return true;
+  } catch (error) {
+    console.warn('Could not restore rewind state:', error);
+    return false;
+  }
+}
 function advanceCoreOneFrame(frame) {
   const manager = getGameManager();
   if (!manager || typeof manager.getFrameNum !== 'function' || typeof manager.toggleMainLoop !== 'function') {
@@ -231,11 +282,34 @@ $('#zoom').addEventListener('input', render);
 $('#prev').addEventListener('click', () => {
   stop();
   if (!gamePaused) setEmulatorPaused(true);
-  go(selected - 1);
-  toast('Timeline moved back. The game state itself cannot rewind yet.');
+  const target = Math.max(0, selected - 1);
+  go(target);
+  if (restoreCoreState(target)) {
+    toast('Restored game state and game save data for this frame.');
+  } else {
+    toast('No rewind snapshot for this frame yet. Play from this point first.');
+  }
 });
 $('#next').addEventListener('click', () => { const frame = ensureFrame(selected + 1); go(selected + 1); advanceCoreOneFrame(frame); });
-$('#reset').addEventListener('click', () => { stop(); go(0); });
+$('#reset').addEventListener('click', () => {
+  stop();
+  const manager = getGameManager();
+  if (manager && typeof manager.restart === 'function') {
+    try {
+      manager.restart();
+      rewindHistory.clear();
+      lastCoreFrame = null;
+      coreFrameOrigin = null;
+      gamePaused = false;
+      $('#pauseEmulator').textContent = 'Ⅱ Pause game';
+      go(0);
+      toast('Game restarted. Rewind history cleared.');
+      return;
+    } catch (error) { console.warn('Game restart failed:', error); }
+  }
+  go(0);
+  toast('Timeline reset. Game core restart is unavailable in this build.');
+});
 $('#pauseEmulator').addEventListener('click', () => setEmulatorPaused(!gamePaused));
 $('#play').addEventListener('click', () => {
   if (timelinePlayback) { stop(); return; }
