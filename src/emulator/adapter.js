@@ -1,6 +1,6 @@
 /**
  * TAS adapter contract for a future deterministic N64 core.
- * The current EmulatorJS launcher is ordinary playback and does NOT expose a
+ * The current EmulatorJS launcher is ordinary playback and does not expose a
  * verified frame-advance or input-injection API to this app.
  */
 export class N64EmulatorAdapter {
