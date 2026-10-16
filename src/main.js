@@ -266,31 +266,38 @@ function render() {
   $('#timelineStick').setAttribute('aria-valuetext', 'X ' + frame.stickX + ', Y ' + frame.stickY);
   const start = Math.max(0, selected - 14);
   const end = Math.min(Math.max(project.frames.length - 1, selected + 18), start + 180);
+  const trackButtons = ['A','B','Z','L','R','Start','↑','↓','←','→','C↑','C↓','C←','C→'];
+  const header = document.createElement('div');
+  header.className = 'timeline-track-row timeline-track-header';
+  const frameHead = document.createElement('span'); frameHead.textContent = 'FRAME'; header.append(frameHead);
+  trackButtons.forEach(name => { const label = document.createElement('span'); label.textContent = name; label.title = name; header.append(label); });
+  const stickHead = document.createElement('span'); stickHead.textContent = 'STICK X/Y'; header.append(stickHead);
+  cells.append(header);
   for (let index = start; index <= end; index++) {
     const item = project.frames.find(frame => frame.frame === index) || createFrame(index);
-    const button = document.createElement('button');
     const hasInput = item.buttons.length || item.stickX || item.stickY;
-    button.className = 'cell timeline-row' + (index === selected ? ' selected' : '') + (hasInput ? ' filled' : '');
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'cell timeline-track-row' + (index === selected ? ' selected' : '') + (hasInput ? ' filled' : '');
     const frameNumber = document.createElement('span');
     frameNumber.className = 'timeline-frame-number';
     frameNumber.textContent = String(index).padStart(6, '0');
-    const digital = document.createElement('span');
-    digital.className = 'timeline-digital';
-    const buttons = item.buttons.length ? item.buttons : [];
-    digital.textContent = buttons.length ? buttons.join(' · ') : '—';
-    digital.classList.toggle('no-input', !buttons.length);
+    row.append(frameNumber);
+    trackButtons.forEach(name => {
+      const mark = document.createElement('span');
+      mark.className = 'timeline-button-mark' + (item.buttons.includes(name) ? ' pressed' : '');
+      mark.textContent = item.buttons.includes(name) ? '●' : '·';
+      mark.title = name + (item.buttons.includes(name) ? ' pressed' : ' not pressed');
+      row.append(mark);
+    });
     const analog = document.createElement('span');
-    analog.className = 'timeline-analog';
-    analog.textContent = 'X ' + item.stickX + '  Y ' + item.stickY;
-    if (item.stickX || item.stickY) analog.classList.add('has-stick');
-    const state = document.createElement('span');
-    state.className = 'timeline-state';
-    state.textContent = hasInput ? 'INPUT' : '—';
-    button.append(frameNumber, digital, analog, state);
-    button.title = 'Frame ' + index + ' · Buttons: ' + (buttons.join(', ') || 'none') + ' · Stick X ' + item.stickX + ', Y ' + item.stickY;
-    button.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (buttons.join(', ') || 'none') + '. Stick X ' + item.stickX + ', Y ' + item.stickY);
-    button.onclick = () => go(index);
-    cells.append(button);
+    analog.className = 'timeline-analog' + ((item.stickX || item.stickY) ? ' has-stick' : '');
+    analog.textContent = item.stickX + ' / ' + item.stickY;
+    row.append(analog);
+    row.title = 'Frame ' + index + ' · Buttons: ' + (item.buttons.join(', ') || 'none') + ' · Stick X ' + item.stickX + ', Y ' + item.stickY;
+    row.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (item.buttons.join(', ') || 'none') + '. Stick X ' + item.stickX + ', Y ' + item.stickY);
+    row.onclick = () => go(index);
+    cells.append(row);
   }
 }
 function toggle(buttonName) {
