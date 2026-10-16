@@ -74,6 +74,18 @@ function setEmulatorPaused(paused) {
 function getGameManager() {
   return getEmulator()?.gameManager || null;
 }
+function focusEmulator() {
+  const frame = $('#emulatorPlayer iframe');
+  try {
+    frame?.contentWindow?.focus();
+    const canvas = frame?.contentDocument?.querySelector('canvas, #game');
+    canvas?.focus?.();
+    return !!frame;
+  } catch (error) {
+    console.warn('Could not focus emulator iframe:', error);
+    return false;
+  }
+}
 
 // Step the running core by one reported frame, then pause it again.
 let stepping = false;
@@ -202,18 +214,42 @@ function setCoreInput(index, value) {
 function releaseCoreInputs() {
   activeCoreInputs.forEach(index => setCoreInput(index, 0));
   activeCoreInputs.clear();
+  // Neutralize both analog axes as well as digital buttons.
+  setCoreInput(16, 0);
+  setCoreInput(17, 0);
 }
 function applyFrameToCore(frame) {
-  releaseCoreInputs();
-  if (!frame) return;
+  if (!frame) {
+    releaseCoreInputs();
+    return;
+  }
+  const desired = new Map();
   frame.buttons.forEach(name => {
     const index = emulatorButtons[name];
     // C-button mapping is intentionally omitted until the N64 core's actual
     // input indices are verified. Never collide with analog axes 16 and 17.
-    if (index !== undefined && setCoreInput(index, 1)) activeCoreInputs.add(index);
+    if (index !== undefined) desired.set(index, 1);
   });
-  if (setCoreInput(16, Math.round(frame.stickX / 127 * 32767))) activeCoreInputs.add(16);
-  if (setCoreInput(17, Math.round(-frame.stickY / 127 * 32767))) activeCoreInputs.add(17);
+  desired.set(16, Math.round(frame.stickX / 127 * 32767));
+  desired.set(17, Math.round(-frame.stickY / 127 * 32767));
+
+  // Preserve held buttons across adjacent frames. Releasing and re-pressing
+  // every button at 60 Hz can cause missed inputs in EmulatorJS.
+  for (const index of activeCoreInputs) {
+    if (!desired.has(index) || desired.get(index) === 0) setCoreInput(index, 0);
+  }
+  const nextActive = new Set();
+  for (const [index, value] of desired) {
+    if (value !== 0) {
+      if (!activeCoreInputs.has(index)) setCoreInput(index, value);
+      else if (index === 16 || index === 17) setCoreInput(index, value);
+      nextActive.add(index);
+    } else if (index === 16 || index === 17) {
+      setCoreInput(index, 0);
+    }
+  }
+  activeCoreInputs.clear();
+  nextActive.forEach(index => activeCoreInputs.add(index));
 }
 
 function ensureFrame(index) {
@@ -418,9 +454,11 @@ $('#play').addEventListener('click', () => {
   // Keep the game running while applying the input row corresponding to each
   // editor frame. The timer drives input injection; the core monitor avoids
   // moving the cursor independently while this timer is active.
+  focusEmulator();
   timelinePlayback = true;
   if (gamePaused && !setEmulatorPaused(false)) return;
   $('#play').textContent = 'Ⅱ Pause TAS';
+  // Give the emulator a chance to receive focus before injecting its first input.
   timer = setInterval(() => {
     const frame = ensureFrame(selected);
     applyFrameToCore(frame);
@@ -468,6 +506,7 @@ $('#startEmulator').addEventListener('click', () => {
   player.addEventListener('load', () => {
     emulatorStarted = true;
     $('#emptyScreen').classList.add('hidden');
+    window.setTimeout(focusEmulator, 250);
     $('#coreStatus').textContent = '● CORE STARTING';
     $('#gameStatus').textContent = 'STARTING';
   });
