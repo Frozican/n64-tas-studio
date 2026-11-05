@@ -1,257 +1,103 @@
 import './style.css';
 import { BUTTONS, createFrame, createProject, normalizeProject } from './tas/project.js';
+import { N64WasmCore } from './emulator/n64wasm.js';
 
 let project = createProject();
 let selected = 0;
 let timer = null;
 let selectedRom = null;
-let romObjectUrl = null;
 let emulatorStarted = false;
+let core = null;
+const checkpoints = new Map();
+const CHECKPOINT_INTERVAL = 60;
+const MAX_CHECKPOINTS = 24;
 const $ = selector => document.querySelector(selector);
 
 $('#app').innerHTML = `
 <header><div class="brand"><span class="logo">64</span><span>N64 <b>TAS STUDIO</b></span></div><div class="actions"><span class="status" id="coreStatus">● CORE NOT LOADED</span><button id="open">Open project</button><button class="primary" id="export">Export TAS</button><input hidden id="projectFile" type="file" accept=".json,.n64tas"></div></header>
 <main>
 <section class="hero"><div><small>FRAME-BY-FRAME WORKBENCH</small><h1>Make every frame <em>count.</em></h1><p>Plan controller inputs, edit a timeline and build reproducible N64 TAS projects.</p></div><label class="rom"><input hidden id="romFile" type="file" accept=".z64,.n64,.v64"><b>＋ Choose your own N64 ROM</b><span id="romName">.z64 · .n64 · .v64 · selected locally only</span></label></section>
-<div class="notice warning"><b>!</b><div><strong>Work in progress — not functional yet</strong><p>The N64 emulator and TAS playback are currently under development and may not work correctly. Timeline synchronization, controller input injection, and frame-by-frame stepping are not reliable yet. Please do not use this build for actual TAS runs.</p></div></div>
+<div class="notice warning"><b>!</b><div><strong>Experimental N64 core — frame stepping enabled</strong><p>The emulator is now driven one core frame at a time. Timeline playback and frame advance use the same stepping path. Game compatibility and repeatability still need testing with individual ROMs before treating a run as verified.</p></div></div>
 <section class="workspace">
-<article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>EmulatorJS · EXPERIMENTAL</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
+<article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>N64WASM · MANUAL CORE STEPPING</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
 <article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
 </section>
 <section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span>Select a cell to edit its input</span><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
-<section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>EmulatorJS launcher; normal play only</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
+<section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>Self-hosted WebAssembly core</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
 
 
-// EmulatorJS controller bridge. Timeline playback injects inputs through
-// GameManager.simulateInput. EmulatorJS does not expose a documented, reliable
-// single-core-frame stepping API, so frame advance uses a short pause/run/pause
-// window and must not be described as deterministic frame-perfect stepping.
-const emulatorButtons = {
-  B: 0, A: 8, Start: 3, '↑': 4, '↓': 5, '←': 6, '→': 7,
-  L: 10, R: 11, Z: 12
-};
-const activeCoreInputs = new Set();
-let gamePaused = false;
-function getEmulator() {
-  const frame = $('#emulatorPlayer iframe');
+// One synchronous call to the core advances exactly one N64 video frame.
+function invalidateCheckpointsAfter(frame) {
+  for (const key of [...checkpoints.keys()]) if (key > frame) checkpoints.delete(key);
+}
+function saveCheckpoint(frame) {
+  if (!core?.ready || frame % CHECKPOINT_INTERVAL !== 0) return;
   try {
-    return frame?.contentWindow?.EJS_emulator
-      || frame?.contentWindow?.parent?.EJS_emulator
-      || null;
-  } catch { return null; }
-}
-function setEmulatorPaused(paused) {
-  const emulator = getEmulator();
-  const manager = emulator?.gameManager;
-  if (!emulator || !manager) {
-    toast('Emulator is still loading. Wait until the game has started.');
-    return false;
-  }
-  try {
-    // EmulatorJS exposes pause() publicly; GameManager.toggleMainLoop is
-    // the underlying fallback used by current builds.
-    if (paused && typeof emulator.pause === 'function') {
-      emulator.pause();
-    } else if (!paused && typeof emulator.play === 'function') {
-      emulator.play();
-    } else if (typeof manager.toggleMainLoop === 'function') {
-      manager.toggleMainLoop(!paused);
-    } else {
-      toast('This EmulatorJS build does not expose pause/resume.');
-      return false;
-    }
-    gamePaused = paused;
-    $('#play').textContent = paused ? '▶ Play' : 'Ⅱ Pause';
-    return true;
-  } catch (error) {
-    console.error('Emulator pause/resume failed:', error);
-    toast('Emulator could not pause. Try after the game has fully started.');
-    return false;
-  }
-}
-function getGameManager() {
-  return getEmulator()?.gameManager || null;
-}
-function focusEmulator() {
-  const frame = $('#emulatorPlayer iframe');
-  try {
-    frame?.contentWindow?.focus();
-    const canvas = frame?.contentDocument?.querySelector('canvas, #game');
-    canvas?.focus?.();
-    return !!frame;
-  } catch (error) {
-    console.warn('Could not focus emulator iframe:', error);
-    return false;
-  }
-}
-
-// Step the running core by one reported frame, then pause it again.
-let stepping = false;
-let coreMonitor = null;
-let lastCoreFrame = null;
-let timelinePlayback = false;
-function startCoreMonitor() {
-  if (coreMonitor) clearInterval(coreMonitor);
-  coreMonitor = setInterval(() => {
-    const manager = getGameManager();
-    if (!manager || typeof manager.getFrameNum !== 'function') return;
-    let current;
-    try { current = manager.getFrameNum(); } catch { return; }
-    if (typeof current !== 'number' || !Number.isFinite(current)) return;
-    if (lastCoreFrame === null) {
-      lastCoreFrame = current;
-      coreFrameOrigin = current - selected;
-      captureCoreState(selected);
-      return;
-    }
-    if (current === lastCoreFrame) return;
-    lastCoreFrame = current;
-    if (!gamePaused && !stepping) {
-      const logicalFrame = Math.max(0, current - (coreFrameOrigin ?? current));
-      captureCoreState(logicalFrame);
-      if (!timer) {
-        selected = logicalFrame;
-        ensureFrame(selected);
-        render();
+    const state = core.saveState();
+    if (state) {
+      checkpoints.set(frame, state);
+      while (checkpoints.size > MAX_CHECKPOINTS) {
+        const keys = [...checkpoints.keys()].filter(key => key !== 0).sort((x,y) => x-y);
+        if (!keys.length) break;
+        checkpoints.delete(keys[0]);
       }
     }
-  }, 16);
+  } catch (error) { console.warn('Could not save TAS checkpoint:', error); }
 }
-let coreFrameOrigin = null;
-// Short in-memory rewind history. Emulator state and cartridge save RAM are
-// captured together so rewinding doesn't leave the game's save data in the future.
-const rewindHistory = new Map();
-const MAX_REWIND_FRAMES = 180;
-function copyBytes(value) {
-  if (!value) return null;
-  try { return new Uint8Array(value); } catch { return null; }
+function stop() {
+  if (timer !== null) cancelAnimationFrame(timer);
+  timer = null;
+  $('#play').textContent = '▶ Play timeline';
 }
-function captureCoreState(frameNumber) {
-  const manager = getGameManager();
-  if (!manager || typeof manager.getState !== 'function') return false;
+function go(index) {
+  const target = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0)));
+  if (core?.ready) { void seekCoreTo(target); return; }
+  selected = target;
+  ensureFrame(selected);
+  render();
+}
+function stepCoreFrame(shouldRender = true) {
+  if (!core?.ready) { toast('Start the N64 core before advancing the live game.'); return false; }
   try {
-    const state = copyBytes(manager.getState());
-    if (!state || !state.length) return false;
-    let saveRam = null;
-    try { saveRam = copyBytes(manager.getSaveFile(false)); } catch {}
-    rewindHistory.set(frameNumber, { state, saveRam });
-    while (rewindHistory.size > MAX_REWIND_FRAMES) {
-      rewindHistory.delete(rewindHistory.keys().next().value);
-    }
+    core.step(ensureFrame(selected));
+    selected += 1;
+    ensureFrame(selected);
+    saveCheckpoint(selected);
+    if (shouldRender) render();
     return true;
   } catch (error) {
-    console.warn('Could not capture rewind state:', error);
+    stop();
+    console.error('N64 frame step failed:', error);
+    toast('The N64 core could not complete this frame: ' + (error.message || 'unknown error'));
     return false;
   }
 }
-function restoreCoreState(frameNumber) {
-  const manager = getGameManager();
-  const snapshot = rewindHistory.get(frameNumber);
-  if (!manager || !snapshot || typeof manager.loadState !== 'function') return false;
-  try {
-    if (snapshot.saveRam && manager.FS && typeof manager.getSaveFilePath === 'function') {
-      const path = manager.getSaveFilePath();
-      if (path) {
-        manager.FS.writeFile(path, copyBytes(snapshot.saveRam));
-        if (typeof manager.loadSaveFiles === 'function') manager.loadSaveFiles();
-      }
-    }
-    manager.loadState(copyBytes(snapshot.state));
-    lastCoreFrame = typeof manager.getFrameNum === 'function' ? manager.getFrameNum() : null;
-    coreFrameOrigin = lastCoreFrame === null ? null : lastCoreFrame - frameNumber;
-    return true;
-  } catch (error) {
-    console.warn('Could not restore rewind state:', error);
-    return false;
-  }
-}
-function advanceCoreOneFrame() {
+async function seekCoreTo(target) {
   stop();
-  const manager = getGameManager();
-  if (!manager) {
-    go(selected + 1);
-    toast('No running N64 core: moved the editor cursor only.');
-    return;
-  }
-
-  // Apply the input for the frame we're about to advance, then briefly run the
-  // core and pause it again. This is best-effort only; browser scheduling and
-  // EmulatorJS threading can make the actual number of core frames vary.
-  const frame = ensureFrame(selected);
-  applyFrameToCore(frame);
-  stepping = true;
-  if (gamePaused && !setEmulatorPaused(false)) {
-    stepping = false;
-    return;
-  }
-  const before = typeof manager.getFrameNum === 'function' ? manager.getFrameNum() : null;
-  window.setTimeout(() => {
-    setEmulatorPaused(true);
-    stepping = false;
-    const after = typeof manager.getFrameNum === 'function' ? manager.getFrameNum() : null;
-    if (typeof before === 'number' && typeof after === 'number' && after > before) {
-      const advanced = Math.max(1, after - before);
-      selected += advanced;
-      ensureFrame(selected);
-      lastCoreFrame = after;
-      coreFrameOrigin = after - selected;
-      captureCoreState(selected);
-      render();
-      toast(advanced === 1 ? 'Advanced the live game by one reported core frame.' : 'Core advanced ' + advanced + ' frames; browser timing prevented an exact single-frame step.');
-    } else {
-      render();
-      toast('The core did not report a frame advance. EmulatorJS cannot guarantee single-frame stepping in this browser.');
+  const destination = Math.max(0, Math.min(999999, Math.floor(Number(target) || 0)));
+  if (!core?.ready) { selected = destination; ensureFrame(selected); render(); return; }
+  try {
+    const available = [...checkpoints.keys()].filter(frame => frame <= destination).sort((x,y) => y-x);
+    const checkpointFrame = available.length ? available[0] : 0;
+    const checkpoint = checkpoints.get(checkpointFrame) || core.initialState;
+    if (!checkpoint) throw new Error('No initial savestate is available.');
+    core.loadState(checkpoint, checkpointFrame);
+    selected = checkpointFrame;
+    while (selected < destination) {
+      core.step(ensureFrame(selected));
+      selected += 1;
+      saveCheckpoint(selected);
     }
-  }, 17);
-}
-function setCoreInput(index, value) {
-  const gm = getGameManager();
-  if (!gm || typeof gm.simulateInput !== 'function') return false;
-  try { gm.simulateInput(0, index, value); return true; } catch { return false; }
-}
-function releaseCoreInputs() {
-  activeCoreInputs.forEach(index => setCoreInput(index, 0));
-  activeCoreInputs.clear();
-  // Neutralize both analog axes as well as digital buttons.
-  setCoreInput(16, 0);
-  setCoreInput(17, 0);
-}
-function applyFrameToCore(frame) {
-  if (!frame) {
-    releaseCoreInputs();
-    return;
+    ensureFrame(selected);
+    render();
+  } catch (error) {
+    console.error('N64 seek failed:', error);
+    toast('Could not seek the live game: ' + (error.message || 'unknown error'));
   }
-  const desired = new Map();
-  frame.buttons.forEach(name => {
-    const index = emulatorButtons[name];
-    // C-button mapping is intentionally omitted until the N64 core's actual
-    // input indices are verified. Never collide with analog axes 16 and 17.
-    if (index !== undefined) desired.set(index, 1);
-  });
-  desired.set(16, Math.round(frame.stickX / 127 * 32767));
-  desired.set(17, Math.round(-frame.stickY / 127 * 32767));
-
-  // Preserve held buttons across adjacent frames. Releasing and re-pressing
-  // every button at 60 Hz can cause missed inputs in EmulatorJS.
-  for (const index of activeCoreInputs) {
-    if (!desired.has(index) || desired.get(index) === 0) setCoreInput(index, 0);
-  }
-  const nextActive = new Set();
-  for (const [index, value] of desired) {
-    if (value !== 0) {
-      if (!activeCoreInputs.has(index)) setCoreInput(index, value);
-      else if (index === 16 || index === 17) setCoreInput(index, value);
-      nextActive.add(index);
-    } else if (index === 16 || index === 17) {
-      setCoreInput(index, 0);
-    }
-  }
-  activeCoreInputs.clear();
-  nextActive.forEach(index => activeCoreInputs.add(index));
 }
-
+function selectTimelineFrame(index) { void seekCoreTo(index); }
 function ensureFrame(index) {
   while (project.frames.length <= index) project.frames.push(createFrame(project.frames.length));
   let frame = project.frames.find(item => item.frame === index);
@@ -261,17 +107,6 @@ function ensureFrame(index) {
 function toast(message) {
   const element = $('#toast'); element.textContent = message; element.classList.add('show');
   clearTimeout(toast.timeout); toast.timeout = setTimeout(() => element.classList.remove('show'), 2400);
-}
-function stop() {
-  clearInterval(timer); timer = null; timelinePlayback = false;
-  $('#play').textContent = '▶ Play timeline';
-  releaseCoreInputs();
-}
-function go(index) { selected = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0))); ensureFrame(selected); render(); }
-function selectTimelineFrame(index) {
-  stop();
-  go(index);
-  toast('Selected timeline frame ' + selected + '. This changes the TAS editor only; the live game state is not seeked.');
 }
 function render() {
   const frame = ensureFrame(selected);
@@ -333,12 +168,14 @@ function render() {
 }
 function toggle(buttonName) {
   const frame = ensureFrame(selected);
+  invalidateCheckpointsAfter(selected);
   frame.buttons = frame.buttons.includes(buttonName) ? frame.buttons.filter(item => item !== buttonName) : [...frame.buttons, buttonName];
   project.updatedAt = new Date().toISOString(); render();
 }
 document.querySelectorAll('[data-b]').forEach(button => button.addEventListener('click', () => toggle(button.dataset.b)));
 function setStick(x, y) {
   const frame = ensureFrame(selected);
+  invalidateCheckpointsAfter(selected);
   frame.stickX = Math.max(-128, Math.min(127, Math.round(x)));
   frame.stickY = Math.max(-128, Math.min(127, Math.round(y)));
   project.updatedAt = new Date().toISOString();
@@ -377,161 +214,98 @@ timelineStick.addEventListener('keydown', event => {
 });
 $('#stickCenter').addEventListener('click', () => setStick(0, 0));
 $('#name').addEventListener('input', event => { project.name = event.target.value.slice(0,80); project.updatedAt = new Date().toISOString(); });
-$('#jump').addEventListener('change', event => go(event.target.value));
+$('#jump').addEventListener('change', event => selectTimelineFrame(Number(event.target.value)));
 $('#zoom').addEventListener('input', render);
 $('#prev').addEventListener('click', () => {
-  if (!gamePaused && getGameManager()) setEmulatorPaused(true);
   stop();
-  go(Math.max(0, selected - 1));
-  toast('Timeline moved back one frame. The live game state was not changed.');
+  if (core?.ready) void seekCoreTo(Math.max(0, selected - 1));
+  else go(Math.max(0, selected - 1));
 });
 $('#next').addEventListener('click', () => {
-  if (!gamePaused && getGameManager()) setEmulatorPaused(true);
-  advanceCoreOneFrame();
+  stop();
+  if (core?.ready) stepCoreFrame(true);
+  else { go(selected + 1); toast('Editor cursor moved. Start the N64 core to advance the actual game.'); }
 });
 $('#reset').addEventListener('click', () => {
   stop();
-  rewindHistory.clear();
-  lastCoreFrame = null;
-  coreFrameOrigin = null;
-  selected = 0;
-  ensureFrame(0);
-  render();
-
-  // EmulatorJS' internal restart() is not reliable across builds and can
-  // freeze the core. Recreate the iframe instead, preserving the selected ROM.
-  if (!selectedRom) {
-    toast('Timeline reset to frame 0. Choose a ROM and start the game.');
-    return;
+  if (core?.ready) {
+    try {
+      core.restoreInitial();
+      selected = 0;
+      checkpoints.clear();
+      if (core.initialState) checkpoints.set(0, core.initialState);
+      ensureFrame(0); render();
+      toast('Game and timeline reset to the initial boot state.');
+    } catch (error) { toast('Reset failed: ' + (error.message || 'unknown error')); }
+  } else {
+    selected = 0; ensureFrame(0); render();
+    toast('Timeline reset. Load a ROM and start the N64 core.');
   }
-  const player = $('#emulatorPlayer iframe');
-  if (!player) {
-    emulatorStarted = false;
-    $('#emptyScreen').classList.remove('hidden');
-    const button = $('#startEmulator');
-    button.disabled = false;
-    button.textContent = '▶ Start N64 emulator';
-    $('#gameStatus').textContent = 'ROM READY';
-    $('#coreStatus').textContent = '● CORE NOT LOADED';
-    toast('Timeline reset. Start the emulator to boot the ROM again.');
-    return;
-  }
-
-  // Release the old runtime and boot a fresh EmulatorJS instance from the ROM.
-  gamePaused = true;
-  emulatorStarted = false;
-  activeCoreInputs.clear();
-  try { URL.revokeObjectURL(romObjectUrl); } catch {}
-  romObjectUrl = null;
-  $('#emulatorPlayer').replaceChildren();
-  $('#emptyScreen').classList.remove('hidden');
-  const button = $('#startEmulator');
-  button.disabled = false;
-  button.textContent = '▶ Start N64 emulator';
-  $('#gameStatus').textContent = 'ROM READY';
-  $('#coreStatus').textContent = '● CORE NOT LOADED';
-  toast('Reset complete. Press Start N64 emulator to boot a fresh game instance.');
 });
 $('#play').addEventListener('click', () => {
-  if (timer) {
-    stop();
-    if (getGameManager() && !gamePaused) setEmulatorPaused(true);
-    return;
-  }
-
-  const manager = getGameManager();
-  if (!manager) {
-    const playbackEnd = Math.max(...project.frames.map(item => item.frame), 0);
-    if (selected >= playbackEnd) {
-      toast('No frames after the selected frame. Add frames or select an earlier frame first.');
-      return;
-    }
-    timelinePlayback = true;
-    $('#play').textContent = 'Ⅱ Pause timeline';
-    timer = setInterval(() => {
-      if (selected >= playbackEnd) { stop(); return; }
-      go(selected + 1);
-    }, 1000 / 60);
-    return;
-  }
-
-  // Keep the game running while applying the input row corresponding to each
-  // editor frame. The timer drives input injection; the core monitor avoids
-  // moving the cursor independently while this timer is active.
-  focusEmulator();
-  timelinePlayback = true;
-  if (gamePaused && !setEmulatorPaused(false)) return;
-  $('#play').textContent = 'Ⅱ Pause TAS';
-  // Freeze the end frame before playback. Do not calculate it after
-  // ensureFrame(), because that creates the current frame and would make the
-  // end frame follow the cursor, stopping playback on its first tick.
+  if (timer !== null) { stop(); return; }
+  if (!core?.ready) { toast('Load a ROM and start the N64 core before TAS playback.'); return; }
   const playbackEnd = Math.max(...project.frames.map(item => item.frame), 0);
-  if (selected >= playbackEnd) {
-    stop();
-    setEmulatorPaused(true);
-    toast('No frames after the selected frame. Add frames or select an earlier frame first.');
-    return;
-  }
-  // Give the emulator a chance to receive focus before injecting its first input.
-  timer = setInterval(() => {
-    const frame = ensureFrame(selected);
-    applyFrameToCore(frame);
-    captureCoreState(selected);
-    if (selected >= playbackEnd) {
-      stop();
-      setEmulatorPaused(true);
-      return;
+  if (selected > playbackEnd) { toast('No frames remain after the selected frame.'); return; }
+  $('#play').textContent = 'Ⅱ Pause TAS';
+  let previousTime = 0, accumulator = 0;
+  const frameDuration = 1000 / 60;
+  const tick = timestamp => {
+    if (timer === null) return;
+    if (!previousTime) previousTime = timestamp;
+    accumulator += Math.min(250, timestamp - previousTime);
+    previousTime = timestamp;
+    let processed = 0;
+    while (accumulator >= frameDuration && selected <= playbackEnd && processed < 5) {
+      if (!stepCoreFrame(false)) return;
+      accumulator -= frameDuration; processed += 1;
     }
-    selected += 1;
-    ensureFrame(selected);
-    render();
-  }, 1000 / 60);
+    if (selected > playbackEnd) { stop(); render(); return; }
+    if (processed) render();
+    timer = requestAnimationFrame(tick);
+  };
+  timer = requestAnimationFrame(tick);
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
 $('#add60').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+60));
-$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); });
+$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); invalidateCheckpointsAfter(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); });
 $('#romFile').addEventListener('change', event => {
   const file = event.target.files?.[0]; if (!file) return;
+  if (core?.ready) { toast('Reload the page before selecting a different ROM.'); event.target.value = ''; return; }
   selectedRom = file;
   project.romName = file.name;
   $('#romName').textContent = file.name + ' — selected locally';
   $('#gameStatus').textContent = 'ROM READY';
   toast('ROM ready. Tap Start N64 emulator.');
 });
-$('#startEmulator').addEventListener('click', () => {
+$('#startEmulator').addEventListener('click', async () => {
   if (!selectedRom) { $('#romFile').click(); toast('Choose a ROM file first.'); return; }
-  if (emulatorStarted) { toast('Emulator is already running. Reload the page to start another ROM.'); return; }
+  if (core?.ready) { toast('The N64 core is already running.'); return; }
   const button = $('#startEmulator');
-  button.disabled = true; button.textContent = 'Loading emulator…';
-  gamePaused = false;
-  lastCoreFrame = null;
-  coreFrameOrigin = null;
-  $('#coreStatus').textContent = '● LOADING EMULATORJS';
-  $('#gameStatus').textContent = 'LOADING CORE';
-  romObjectUrl = URL.createObjectURL(selectedRom);
-  const gameName = selectedRom.name.replace(/\\.[^.]+$/, '');
-  const player = document.createElement('iframe');
-  player.title = 'N64 Emulator';
-  player.allow = 'autoplay; fullscreen; gamepad';
-  player.setAttribute('allowfullscreen', '');
-  player.className = 'emulatorFrame';
-  player.srcdoc = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#game{margin:0;width:100%;height:100%;background:#05070b;overflow:hidden}#game{width:100%;height:100%}.ejs_virtualGamepad_parent,.ejs_virtualGamepad_top,.ejs_virtualGamepad_bottom,.ejs_virtualGamepad_left,.ejs_virtualGamepad_right{display:none!important;visibility:hidden!important;pointer-events:none!important}</style></head><body><div id="game"></div><script>window.EJS_player='#game';window.EJS_core='n64';window.EJS_gameUrl=${JSON.stringify(romObjectUrl)};window.EJS_pathtodata='https://cdn.emulatorjs.org/stable/data/';window.EJS_startOnLoaded=true;window.EJS_gameName=${JSON.stringify(gameName)};window.EJS_language='en-US';window.EJS_VirtualGamepadSettings=[];window.EJS_disableLocalStorage=true;window.EJS_hideSettings=['shader','fps','rewind','rewind-enabled','video-filter','video-filter-options'];window.EJS_Buttons={playPause:false,restart:false,mute:true,unmute:true,settings:false,fullscreen:true,enterFullscreen:true,exitFullscreen:true,saveState:false,loadState:false,screenRecord:false,gamepad:false,cheat:false,volume:true,saveSavFiles:false,loadSavFiles:false,quickSave:false,quickLoad:false,screenshot:false,cacheManager:false,exitEmulation:false};</script><script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script></body></html>`;
-  player.addEventListener('load', () => {
-    emulatorStarted = true;
+  button.disabled = true; button.textContent = 'Loading N64 core…';
+  $('#coreStatus').textContent = '● LOADING N64WASM';
+  $('#gameStatus').textContent = 'INITIALIZING CORE';
+  core = new N64WasmCore({
+    root: $('#emulatorPlayer'),
+    onStatus: status => { $('#coreStatus').textContent = '● ' + status.toUpperCase(); }
+  });
+  try {
+    await core.load(selectedRom);
+    emulatorStarted = true; selected = 0; checkpoints.clear();
+    if (core.initialState) checkpoints.set(0, core.initialState);
     $('#emptyScreen').classList.add('hidden');
-    window.setTimeout(focusEmulator, 250);
-    $('#coreStatus').textContent = '● CORE STARTING';
-    $('#gameStatus').textContent = 'STARTING';
-  });
-  player.addEventListener('error', () => {
-    $('#coreStatus').textContent = '● LOAD FAILED';
+    $('#coreStatus').textContent = '● N64WASM READY';
+    $('#gameStatus').textContent = 'GAME READY · FRAME 0';
+    button.textContent = 'N64 core ready';
+    render();
+    toast('N64 core ready. Frame Advance now executes exactly one core frame.');
+  } catch (error) {
+    console.error('N64 core initialization failed:', error);
+    core = null; $('#coreStatus').textContent = '● CORE LOAD FAILED';
     $('#gameStatus').textContent = 'CORE FAILED';
-    button.disabled = false; button.textContent = 'Retry emulator load';
-    toast('EmulatorJS failed to load. Check connection and retry.');
-  });
-  $('#emulatorPlayer').replaceChildren(player);
-  player.addEventListener('load', () => startCoreMonitor(), { once: true });
-  toast('EmulatorJS is loading. First boot may take a while.');
+    button.disabled = false; button.textContent = 'Retry N64 core load';
+    toast('Could not start N64Wasm: ' + (error.message || 'unknown error'));
+  }
 });
 $('#export').addEventListener('click', () => {
   project.updatedAt = new Date().toISOString();
@@ -543,7 +317,7 @@ $('#export').addEventListener('click', () => {
 $('#open').addEventListener('click', () => $('#projectFile').click());
 $('#projectFile').addEventListener('change', async event => {
   const file = event.target.files?.[0]; if (!file) return;
-  try { project = normalizeProject(JSON.parse(await file.text())); selected = 0; render(); toast('Project imported.'); }
+  try { project = normalizeProject(JSON.parse(await file.text())); selected = 0; checkpoints.clear(); if (core?.ready) { core.restoreInitial(); if (core.initialState) checkpoints.set(0, core.initialState); } render(); toast('Project imported.'); }
   catch (error) { toast(error.message || 'Could not open project.'); }
   event.target.value = '';
 });

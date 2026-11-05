@@ -15,6 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 2.0.7
+      - name: Fetch pinned N64Wasm source
+        run: |
+          git clone https://github.com/nbarkhina/N64Wasm.git .n64wasm
+          git -C .n64wasm checkout bfac222f8a27287022844b47000328531834e9c1
+      - name: Apply TAS core bridge
+        run: python3 scripts/patch_n64wasm.py .n64wasm
+      - name: Compile N64 WebAssembly core
+        run: make -C .n64wasm/code -j2
+      - name: Stage local emulator runtime
+        run: |
+          mkdir -p public/n64wasm
+          cp .n64wasm/dist/n64wasm.js public/n64wasm/
+          cp .n64wasm/dist/n64wasm.wasm public/n64wasm/
+          cp .n64wasm/dist/assets.zip public/n64wasm/
       - uses: actions/setup-node@v4
         with:
           node-version: 22
