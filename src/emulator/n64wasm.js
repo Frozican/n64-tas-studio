@@ -50,6 +50,17 @@ export class N64WasmCore {
         } catch(error) { rejectRuntime(error); }
       }
     };
+    // N64Wasm's original C++ frontend calls into a global myApp object.
+    // This TAS page does not ship that frontend, so provide safe no-op hooks
+    // for optional mobile UI/cloud callbacks while controller input is injected
+    // through the exported TAS bridge below.
+    if (!window.myApp) {
+      window.myApp = {
+        rivetsData: { inputController: { updateMobileControls() {} } },
+        localCallback() {}, SaveStateEvent() {}, ExportEepEvent() {},
+        loadCloud() {}, saveCloud() {}, fullscreen() {}
+      };
+    }
     this.Module=module; window.Module=module;
     this.script=document.createElement('script');
     this.script.src=assetUrl('n64wasm.js'); this.script.async=true;
