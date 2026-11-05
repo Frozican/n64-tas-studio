@@ -96,6 +96,14 @@ export class N64WasmCore {
     if(!this.Module._neil_unserialize()) throw new Error('The N64 core rejected the savestate.');
     this.frameCount=frameNumber;
   }
+  reset() {
+    if(!this.ready || !this.Module) throw new Error('N64 core is not ready.');
+    if(typeof this.Module._neil_reset!=='function') throw new Error('The N64 core reset function is unavailable.');
+    // Use the emulator's native reset path instead of reloading a large savestate
+    // into Emscripten's virtual filesystem (which can crash mobile browsers).
+    this.Module._neil_reset();
+    this.frameCount=0;
+  }
   restoreInitial() {
     if(!this.initialState) throw new Error('Initial savestate is unavailable.');
     this.loadState(this.initialState,0);
