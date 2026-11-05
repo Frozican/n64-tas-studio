@@ -142,18 +142,26 @@ function render() {
   for (let index = start; index <= end; index++) {
     const item = project.frames.find(frame => frame.frame === index) || createFrame(index);
     const hasInput = item.buttons.length || item.stickX || item.stickY;
-    const row = document.createElement('button');
-    row.type = 'button';
+    const row = document.createElement('div');
     row.className = 'cell timeline-track-row' + (index === selected ? ' selected' : '') + (hasInput ? ' filled' : '');
-    const frameNumber = document.createElement('span');
+    row.setAttribute('role', 'group');
+    const frameNumber = document.createElement('button');
+    frameNumber.type = 'button';
+    frameNumber.className = 'timeline-frame-number';
+    frameNumber.title = 'Select frame ' + index;
+    frameNumber.onclick = () => selectTimelineFrame(index);
     frameNumber.className = 'timeline-frame-number';
     frameNumber.textContent = String(index).padStart(6, '0');
     row.append(frameNumber);
     trackButtons.forEach(name => {
-      const mark = document.createElement('span');
+      const mark = document.createElement('button');
+      mark.type = 'button';
       mark.className = 'timeline-button-mark' + (item.buttons.includes(name) ? ' pressed' : '');
       mark.textContent = item.buttons.includes(name) ? '●' : '·';
-      mark.title = name + (item.buttons.includes(name) ? ' pressed' : ' not pressed');
+      mark.title = 'Toggle ' + name + ' on frame ' + index;
+      mark.setAttribute('aria-label', 'Toggle ' + name + ' on frame ' + index);
+      mark.setAttribute('aria-pressed', String(item.buttons.includes(name)));
+      mark.onclick = event => { event.stopPropagation(); void editTimelineButton(index, name); };
       row.append(mark);
     });
     const analog = document.createElement('span');
@@ -164,6 +172,39 @@ function render() {
     row.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (item.buttons.join(', ') || 'none') + '. Stick X ' + item.stickX + ', Y ' + item.stickY);
     row.onclick = () => selectTimelineFrame(index);
     cells.append(row);
+  }
+}
+async function editTimelineButton(frameIndex, buttonName) {
+  stop();
+  const resumeFrame = Math.max(selected, frameIndex + 1);
+  const frame = ensureFrame(frameIndex);
+  frame.buttons = frame.buttons.includes(buttonName)
+    ? frame.buttons.filter(item => item !== buttonName)
+    : [...frame.buttons, buttonName];
+  project.updatedAt = new Date().toISOString();
+
+  if (!core?.ready) {
+    selected = frameIndex;
+    render();
+    toast(buttonName + ' updated on frame ' + frameIndex + '.');
+    return;
+  }
+
+  // A late input edit rewinds three frames, then deterministically replays
+  // through the previous playhead so the changed input reaches the live core.
+  const rewindFrame = Math.max(0, frameIndex - 3);
+  invalidateCheckpointsAfter(rewindFrame);
+  try {
+    await seekCoreTo(rewindFrame);
+    while (selected < resumeFrame) {
+      if (!stepCoreFrame(false)) throw new Error('Could not replay frame ' + selected + '.');
+    }
+    render();
+    toast(buttonName + ' applied on frame ' + frameIndex + ' (3-frame rollback).');
+  } catch (error) {
+    stop();
+    console.error('Timeline input rollback failed:', error);
+    toast('Input saved, but replay failed: ' + (error.message || 'unknown error'));
   }
 }
 function toggle(buttonName) {
