@@ -230,12 +230,12 @@ $('#reset').addEventListener('click', () => {
   stop();
   if (core?.ready) {
     try {
-      core.restoreInitial();
+      core.reset();
       selected = 0;
       checkpoints.clear();
       if (core.initialState) checkpoints.set(0, core.initialState);
       ensureFrame(0); render();
-      toast('Game and timeline reset to the initial boot state.');
+      toast('Game reset to its initial state. TAS inputs were kept.');
     } catch (error) { toast('Reset failed: ' + (error.message || 'unknown error')); }
   } else {
     selected = 0; ensureFrame(0); render();
