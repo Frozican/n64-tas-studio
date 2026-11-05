@@ -19,7 +19,7 @@ $('#app').innerHTML = `
 <section class="hero"><div><small>FRAME-BY-FRAME WORKBENCH</small><h1>Make every frame <em>count.</em></h1><p>Plan controller inputs, edit a timeline and build reproducible N64 TAS projects.</p></div><label class="rom"><input hidden id="romFile" type="file" accept=".z64,.n64,.v64"><b>＋ Choose your own N64 ROM</b><span id="romName">.z64 · .n64 · .v64 · selected locally only</span></label></section>
 <div class="notice warning"><b>!</b><div><strong>Experimental N64 core — frame stepping enabled</strong><p>The emulator is now driven one core frame at a time. Timeline playback and frame advance use the same stepping path. Game compatibility and repeatability still need testing with individual ROMs before treating a run as verified.</p></div></div>
 <section class="workspace">
-<article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>N64WASM · MANUAL CORE STEPPING</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev">−1</button><button class="primary play" id="play">▶ Play timeline</button><button id="next">+1</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
+<article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>N64WASM · MANUAL CORE STEPPING</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev" class="step-button" title="Restore the previous frame">◀ −1</button><button class="primary play" id="play">▶ Run game</button><button id="next" class="step-button" title="Advance exactly one N64 frame">+1 ▶</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
 <article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
 </section>
 <section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span>Select a cell to edit its input</span><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
@@ -49,7 +49,7 @@ function saveCheckpoint(frame) {
 function stop() {
   if (timer !== null) cancelAnimationFrame(timer);
   timer = null;
-  $('#play').textContent = '▶ Play timeline';
+  $('#play').textContent = '▶ Run game';
 }
 function go(index) {
   const target = Math.max(0, Math.min(999999, Math.floor(Number(index) || 0)));
@@ -244,10 +244,8 @@ $('#reset').addEventListener('click', () => {
 });
 $('#play').addEventListener('click', () => {
   if (timer !== null) { stop(); return; }
-  if (!core?.ready) { toast('Load a ROM and start the N64 core before TAS playback.'); return; }
-  const playbackEnd = Math.max(...project.frames.map(item => item.frame), 0);
-  if (selected > playbackEnd) { toast('No frames remain after the selected frame.'); return; }
-  $('#play').textContent = 'Ⅱ Pause TAS';
+  if (!core?.ready) { toast('Load a ROM and start the N64 core before running the game.'); return; }
+  $('#play').textContent = 'Ⅱ Pause';
   let previousTime = 0, accumulator = 0;
   const frameDuration = 1000 / 60;
   const tick = timestamp => {
@@ -256,11 +254,12 @@ $('#play').addEventListener('click', () => {
     accumulator += Math.min(250, timestamp - previousTime);
     previousTime = timestamp;
     let processed = 0;
-    while (accumulator >= frameDuration && selected <= playbackEnd && processed < 5) {
+    // Run continuously; extend the timeline with empty frames as the game advances.
+    while (accumulator >= frameDuration && selected < 10000 && processed < 5) {
       if (!stepCoreFrame(false)) return;
       accumulator -= frameDuration; processed += 1;
     }
-    if (selected > playbackEnd) { stop(); render(); return; }
+    if (selected >= 10000) { stop(); toast('Timeline reached the 10,000-frame safety limit.'); render(); return; }
     if (processed) render();
     timer = requestAnimationFrame(tick);
   };
