@@ -66,3 +66,11 @@
   .transport .frameNo{grid-column:1/-1;flex-direction:row;justify-content:space-between;align-items:center;padding:2px 3px}
   .transport .frameNo b{font-size:17px}
 }
+
+/* Clickable input cells in each frame row */
+.timeline-track-row .timeline-frame-number{display:block;width:100%;height:24px;padding:2px 4px;border:0;background:transparent;text-align:left;font:9px 'DM Mono',monospace;color:#b5bfd2}
+.timeline-track-row .timeline-button-mark{display:grid;place-items:center;width:100%;min-width:0;height:24px;padding:0;border-radius:4px;font:9px 'DM Mono',monospace;touch-action:manipulation}
+.timeline-track-row .timeline-button-mark:not(.pressed){background:#202738;color:#68758b;border:1px solid #2e374a}
+.timeline-track-row .timeline-button-mark.pressed{background:#715cb3;color:#fff;border:1px solid #b6a5ff;box-shadow:0 0 7px #8b75df33}
+.timeline-track-row .timeline-button-mark:active{transform:scale(.94)}
+.timeline-track-row .timeline-frame-number:active{background:#393052}
