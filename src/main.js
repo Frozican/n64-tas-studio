@@ -25,6 +25,16 @@ $('#app').innerHTML = `
 </section>
 <section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span class="axis-value">X <b id="timelineX">0</b><label class="same-axis"><input id="xSame" type="checkbox"> Same as before</label></span><span class="axis-value">Y <b id="timelineY">0</b><label class="same-axis"><input id="ySame" type="checkbox"> Same as before</label></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span id="timelineHint">Unchanged rendered frames are hidden</span><label class="show-unchanged"><input id="showUnchanged" type="checkbox"> Show unchanged frames</label><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
 <section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>Self-hosted WebAssembly core</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
+<section class="panel recorder-panel">
+<div class="heading">RECORDING <span>VIDEO + AUDIO</span></div>
+<div class="recording-controls">
+<label>From <input id="recordFrom" type="number" min="0" value="0"></label>
+<label>To <input id="recordTo" type="number" min="0" value="300"></label>
+<button id="recordButton" class="primary">● Record range</button>
+</div>
+<div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as a video with sound.</span></div>
+<p class="hint">The range is rendered in the background at the game's 60 FPS so video and audio stay synchronized. The game view does not need to be watched.</p>
+</section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
 
@@ -391,6 +401,100 @@ $('#export').addEventListener('click', () => {
   link.href = url; link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi,'-') + '.n64tas.json';
   link.click(); URL.revokeObjectURL(url); toast('TAS project exported.');
 });
+let recording = false;
+function nextPaint() { return new Promise(resolve => requestAnimationFrame(resolve)); }
+function waitForRecorder(recorder) {
+  return new Promise((resolve, reject) => {
+    recorder.addEventListener('stop', () => resolve(), { once: true });
+    recorder.addEventListener('error', event => reject(event.error || new Error('Video recording failed.')), { once: true });
+  });
+}
+async function recordSelectedRange() {
+  if (recording) return;
+  if (!core?.ready) { toast('Load a ROM and start the N64 core first.'); return; }
+  if (!window.MediaRecorder || !core.Module?.canvas?.captureStream) { toast('This browser does not support video recording.'); return; }
+  const from = Math.max(0, Math.floor(Number($('#recordFrom').value) || 0));
+  const to = Math.max(0, Math.floor(Number($('#recordTo').value) || 0));
+  if (to < from) { toast('The To frame must be greater than or equal to From.'); return; }
+  if (to - from > 18000) { toast('Please record a maximum of 18,001 frames (about 5 minutes).'); return; }
+  stop();
+  recording = true;
+  const button = $('#recordButton');
+  button.disabled = true;
+  button.textContent = 'Recording…';
+  $('#recordProgressBar').style.width = '0%';
+  $('#recordProgress').textContent = 'Preparing audio and video…';
+  let videoStream, audioStream, recorder, stopPromise;
+  const chunks = [];
+  const originalFrame = selected;
+  let originalState = null;
+  try {
+    originalState = core.saveState();
+    if (!originalState) throw new Error('Could not save the current emulator state.');
+    audioStream = core.startAudioCapture();
+    if (core.audioCaptureContext?.state === 'suspended') await core.audioCaptureContext.resume();
+    videoStream = core.Module.canvas.captureStream(60);
+    const combined = new MediaStream([...videoStream.getVideoTracks(), ...audioStream.getAudioTracks()]);
+    const mimeType = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(type => MediaRecorder.isTypeSupported(type));
+    recorder = new MediaRecorder(combined, mimeType ? { mimeType } : undefined);
+    recorder.addEventListener('dataavailable', event => { if (event.data?.size) chunks.push(event.data); });
+    stopPromise = waitForRecorder(recorder);
+    recorder.start(1000);
+    const checkpointsBefore = [...checkpoints.keys()].filter(frame => frame <= from).sort((a,b) => b-a);
+    const checkpointFrame = checkpointsBefore.length ? checkpointsBefore[0] : 0;
+    const checkpoint = checkpoints.get(checkpointFrame) || core.initialState;
+    if (!checkpoint) throw new Error('No initial savestate is available.');
+    core.loadState(checkpoint, checkpointFrame);
+    for (let frame = checkpointFrame; frame < from; frame += 1) {
+      core.step(resolvedFrame(frame));
+    }
+    for (let frame = from; frame <= to; frame += 1) {
+      core.step(resolvedFrame(frame));
+      const completed = frame - from + 1;
+      const total = to - from + 1;
+      const percent = Math.round(completed / total * 100);
+      $('#recordProgressBar').style.width = percent + '%';
+      $('#recordProgress').textContent = 'Recording frame ' + completed + ' / ' + total + ' (' + percent + '%)';
+      // Keep captureStream and the WebAudio output clock synchronized at 60 FPS.
+      await new Promise(resolve => setTimeout(resolve, 1000 / 60));
+    }
+    recorder.stop();
+    await stopPromise;
+    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
+    if (!blob.size) throw new Error('The browser returned an empty recording.');
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi, '-') + '-frames-' + from + '-' + to + '.webm';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' recording · ' + (blob.size / 1048576).toFixed(1) + ' MB';
+    toast('Video recording saved.');
+  } catch (error) {
+    console.error('TAS recording failed:', error);
+    if (recorder?.state === 'recording') { recorder.stop(); try { await stopPromise; } catch {} }
+    $('#recordProgress').textContent = 'Recording failed: ' + (error.message || 'unknown error');
+    toast('Recording failed: ' + (error.message || 'unknown error'));
+  } finally {
+    try { core.stopAudioCapture(); } catch {}
+    videoStream?.getTracks().forEach(track => track.stop());
+    if (originalState) {
+      try { core.loadState(originalState, originalFrame); selected = originalFrame; render(); }
+      catch (error) { console.error('Could not restore emulator after recording:', error); }
+    }
+    recording = false;
+    button.disabled = false;
+    button.textContent = '● Record range';
+  }
+}
+function completedDuration(frames) {
+  const seconds = frames / 60;
+  return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
+}
+$('#recordButton').addEventListener('click', () => { void recordSelectedRange(); });
+$('#recordFrom').addEventListener('change', event => { event.target.value = Math.max(0, Math.floor(Number(event.target.value) || 0)); });
+$('#recordTo').addEventListener('change', event => { event.target.value = Math.max(0, Math.floor(Number(event.target.value) || 0)); });
+
 $('#open').addEventListener('click', () => $('#projectFile').click());
 $('#projectFile').addEventListener('change', async event => {
   const file = event.target.files?.[0]; if (!file) return;
