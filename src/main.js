@@ -33,7 +33,7 @@ $('#app').innerHTML = `
 <button id="recordButton" class="primary">● Record range</button>
 </div>
 <div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as an AVI video.</span></div>
-<p class="hint">The selected range is exported as Motion-JPEG AVI at 60 FPS. Audio is not included. The game view does not need to be watched.</p>
+<p class="hint">The selected range is exported as Motion-JPEG AVI at 60 FPS with captured 44.1 kHz stereo PCM audio. The game view does not need to be watched.</p>
 </section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
@@ -420,36 +420,51 @@ function aviList(type, children) {
   for (const item of children) { out.set(item, offset); offset += item.length; }
   return out;
 }
-function buildMjpegAvi(frames, width, height) {
-  const maxSize = frames.reduce((max, frame) => Math.max(max, frame.length), 0);
+function buildMjpegAvi(frames, width, height, audioSamples) {
+  const maxVideoSize = frames.reduce((max, frame) => Math.max(max, frame.length), 0);
+  const audioBytes = audioSamples.byteLength;
   const avih = new Uint8Array(56), av = new DataView(avih.buffer);
-  av.setUint32(0, 1000000 / 60, true); av.setUint32(4, maxSize * 60, true);
+  av.setUint32(0, 1000000 / 60, true); av.setUint32(4, Math.max(maxVideoSize * 60, 176400), true);
   av.setUint32(12, 0x10, true); av.setUint32(16, frames.length, true);
-  av.setUint32(24, 1, true); av.setUint32(28, maxSize, true);
+  av.setUint32(24, 2, true); av.setUint32(28, Math.max(maxVideoSize, audioBytes), true);
   av.setUint32(32, width, true); av.setUint32(36, height, true);
-  const strh = new Uint8Array(56), sh = new DataView(strh.buffer);
-  aviFourCC(sh, 0, 'vids'); aviFourCC(sh, 4, 'MJPG');
-  sh.setUint32(20, 1, true); sh.setUint32(24, 60, true);
-  sh.setUint32(32, frames.length, true); sh.setUint32(36, maxSize, true);
-  sh.setInt16(48, 0, true); sh.setInt16(50, 0, true);
-  sh.setInt16(52, Math.min(width, 32767), true); sh.setInt16(54, Math.min(height, 32767), true);
-  const strf = new Uint8Array(40), sf = new DataView(strf.buffer);
-  sf.setUint32(0, 40, true); sf.setInt32(4, width, true); sf.setInt32(8, height, true);
-  sf.setUint16(12, 1, true); sf.setUint16(14, 24, true); aviFourCC(sf, 16, 'MJPG');
-  sf.setUint32(20, maxSize, true);
-  const header = aviList('hdrl', [aviChunk('avih', avih), aviList('strl', [aviChunk('strh', strh), aviChunk('strf', strf)])]);
+  const videoHeader = new Uint8Array(56), vh = new DataView(videoHeader.buffer);
+  aviFourCC(vh, 0, 'vids'); aviFourCC(vh, 4, 'MJPG');
+  vh.setUint32(20, 1, true); vh.setUint32(24, 60, true);
+  vh.setUint32(32, frames.length, true); vh.setUint32(36, maxVideoSize, true);
+  vh.setInt16(48, 0, true); vh.setInt16(50, 0, true);
+  vh.setInt16(52, Math.min(width, 32767), true); vh.setInt16(54, Math.min(height, 32767), true);
+  const videoFormat = new Uint8Array(40), vf = new DataView(videoFormat.buffer);
+  vf.setUint32(0, 40, true); vf.setInt32(4, width, true); vf.setInt32(8, height, true);
+  vf.setUint16(12, 1, true); vf.setUint16(14, 24, true); aviFourCC(vf, 16, 'MJPG');
+  vf.setUint32(20, maxVideoSize, true);
+  const audioHeader = new Uint8Array(56), ah = new DataView(audioHeader.buffer);
+  aviFourCC(ah, 0, 'auds');
+  ah.setUint32(20, 4, true); ah.setUint32(24, 176400, true);
+  ah.setUint32(32, audioSamples.length / 2, true); ah.setUint32(36, audioBytes, true);
+  ah.setUint32(44, 4, true); ah.setUint32(48, 4, true);
+  const audioFormat = new Uint8Array(16), af = new DataView(audioFormat.buffer);
+  af.setUint16(0, 1, true); af.setUint16(2, 2, true); af.setUint32(4, 44100, true);
+  af.setUint32(8, 176400, true); af.setUint16(12, 4, true); af.setUint16(14, 16, true);
+  const header = aviList('hdrl', [
+    aviChunk('avih', avih),
+    aviList('strl', [aviChunk('strh', videoHeader), aviChunk('strf', videoFormat)]),
+    aviList('strl', [aviChunk('strh', audioHeader), aviChunk('strf', audioFormat)])
+  ]);
   const moviChunks = [], index = [];
   let moviOffset = 0;
-  for (const frame of frames) {
-    const item = aviChunk('00dc', frame);
-    index.push({ offset: moviOffset, size: frame.length });
+  const addIndexedChunk = (id, data, flags) => {
+    const item = aviChunk(id, data);
+    index.push({ id, offset: moviOffset, size: data.length, flags });
     moviChunks.push(item); moviOffset += item.length;
-  }
+  };
+  for (const frame of frames) addIndexedChunk('00dc', frame, 0x10);
+  if (audioBytes) addIndexedChunk('01wb', new Uint8Array(audioSamples.buffer, audioSamples.byteOffset, audioSamples.byteLength), 0);
   const movi = aviList('movi', moviChunks);
   const idx = new Uint8Array(index.length * 16), iv = new DataView(idx.buffer);
   index.forEach((entry, i) => {
-    const p = i * 16; aviFourCC(iv, p, '00dc');
-    iv.setUint32(p + 4, 0x10, true); iv.setUint32(p + 8, entry.offset, true);
+    const p = i * 16; aviFourCC(iv, p, entry.id);
+    iv.setUint32(p + 4, entry.flags, true); iv.setUint32(p + 8, entry.offset, true);
     iv.setUint32(p + 12, entry.size, true);
   });
   const idxChunk = aviChunk('idx1', idx);
@@ -479,12 +494,13 @@ async function recordSelectedRange() {
   const button = $('#recordButton');
   button.disabled = true; button.textContent = 'Recording…';
   $('#recordProgressBar').style.width = '0%';
-  $('#recordProgress').textContent = 'Preparing AVI encoder…';
+  $('#recordProgress').textContent = 'Preparing AVI video and audio capture…';
   const originalFrame = selected;
   let originalState = null;
   try {
     originalState = core.saveState();
     if (!originalState) throw new Error('Could not save the current emulator state.');
+    core.beginPcmCapture();
     core.setUnpaced(true);
     const candidates = [...checkpoints.keys()].filter(frame => frame <= from).sort((x, y) => y - x);
     const checkpointFrame = candidates.length ? candidates[0] : 0;
@@ -515,13 +531,14 @@ async function recordSelectedRange() {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-    const avi = buildMjpegAvi(frames, capture.width, capture.height);
+    const audioSamples = core.finishPcmCapture();
+    const avi = buildMjpegAvi(frames, capture.width, capture.height, audioSamples);
     const blob = new Blob([avi], { type: 'video/x-msvideo' });
     const url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url;
     link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi, '-') + '-frames-' + from + '-' + to + '.avi';
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
-    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' AVI · ' + (blob.size / 1048576).toFixed(1) + ' MB · MJPEG · 60 FPS · no audio';
+    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' AVI · ' + (blob.size / 1048576).toFixed(1) + ' MB · MJPEG · 60 FPS · PCM audio · 44.1 kHz stereo';
     toast('AVI video saved.');
   } catch (error) {
     console.error('TAS recording failed:', error);
