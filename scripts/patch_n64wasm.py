@@ -15,7 +15,9 @@ main=replace_once(main,"    bool ricePlugin = false;\n}\n",'''    bool ricePlugi
 static int tasButtonState[14] = {0};
 static int tasAxisX = 0;
 static int tasAxisY = 0;
+static bool tasUnpaced = false;
 extern "C" {
+    void neil_tas_set_unpaced(int enabled) { tasUnpaced = enabled != 0; }
     void neil_tas_set_button(int button,int pressed) {
         if(button>=0 && button<14) tasButtonState[button]=pressed?1:0;
     }
@@ -72,8 +74,9 @@ new_loop='''    // The host calls this function exactly once per TAS frame.
     applyTasInput();
     retro_run();'''
 main=replace_once(main,old_loop,new_loop,"one core frame per host call")
+main=replace_once(main,"    limitFPS();","    if (!tasUnpaced) limitFPS();","bypass wall-clock FPS limiter during offline recording")
 main_path.write_text(main,encoding="utf-8")
 make=replace_once(make,"['callMain','cwrap']","['callMain','cwrap','FS']","export Emscripten FS")
-make=replace_once(make,"'_neil_set_buffer_remaining','_neil_set_endframe_callback','_neil_set_double_speed']","'_neil_set_buffer_remaining','_neil_set_endframe_callback','_neil_set_double_speed', '_neil_tas_set_button', '_neil_tas_set_axis']","export TAS bridge")
+make=replace_once(make,"'_neil_set_buffer_remaining','_neil_set_endframe_callback','_neil_set_double_speed']","'_neil_set_buffer_remaining','_neil_set_endframe_callback','_neil_set_double_speed', '_neil_tas_set_button', '_neil_tas_set_axis', '_neil_tas_set_unpaced']","export TAS bridge")
 make_path.write_text(make,encoding="utf-8")
 print("Patched N64Wasm with persistent TAS inputs and one retro_run per call.")
