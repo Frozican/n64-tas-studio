@@ -28,8 +28,8 @@ $('#app').innerHTML = `
 <section class="panel recorder-panel">
 <div class="heading">RECORDING <span>VIDEO + AUDIO</span></div>
 <div class="recording-controls">
-<label for="recordFrom">From</label><input id="recordFrom" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="First frame to record" value="0">
-<label for="recordTo">To</label><input id="recordTo" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Last frame to record" value="300">
+<div class="recording-field"><label for="recordFrom">From</label><input id="recordFrom" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="First frame to record" value="0"></div>
+<div class="recording-field"><label for="recordTo">To</label><input id="recordTo" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Last frame to record" value="300"></div>
 <button id="recordButton" class="primary">● Record range</button>
 </div>
 <div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as a video with sound.</span></div>
@@ -411,7 +411,7 @@ async function recordSelectedRange() {
   }
   const fromText = String($('#recordFrom').value).trim();
   const toText = String($('#recordTo').value).trim();
-  if (!/^\\d+$/.test(fromText) || !/^\\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
+  if (!/^\d+$/.test(fromText) || !/^\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
   const from = Number(fromText);
   const to = Number(toText);
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) { toast('Frame numbers are too large.'); return; }
