@@ -446,12 +446,18 @@ async function recordSelectedRange() {
     }
 
     const canvas = core.Module.canvas;
+    // Snapshot each completed emulator frame into a dedicated canvas. This
+    // prevents later emulator paints from changing a frame while the encoder
+    // is still consuming it (a source of intermittent tearing/flicker).
+    const captureCanvas = document.createElement('canvas');
+    captureCanvas.width = canvas.width || 640;
+    captureCanvas.height = canvas.height || 480;
+    const captureContext = captureCanvas.getContext('2d', { alpha: false });
+    if (!captureContext) throw new Error('Could not create the video frame buffer.');
     output = new Output({ format: new WebMOutputFormat(), target: new BufferTarget() });
-    videoSource = new CanvasSource(canvas, {
-      codec: 'vp9',
-      quality: new Quality('medium'),
-      latencyMode: 'quality',
-      keyFrameInterval: 2
+    videoSource = new CanvasSource(captureCanvas, {
+      codec: 'vp8',
+      quality: new Quality('high')
     });
     output.addVideoTrack(videoSource, { frameRate: 60 });
     await output.start();
@@ -460,6 +466,8 @@ async function recordSelectedRange() {
     for (let frame = from; frame <= to; frame += 1) {
       core.step(resolvedFrame(frame));
       const index = frame - from;
+      // Freeze the rendered image before the next core step can repaint it.
+      captureContext.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
       // Timestamp is derived from the TAS frame number, not wall-clock time.
       await videoSource.add(index / 60, 1 / 60, { keyFrame: index === 0 });
       const completed = index + 1;
@@ -470,6 +478,7 @@ async function recordSelectedRange() {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
+    videoSource.close();
     await output.finalize();
     const buffer = output.target.buffer;
     if (!buffer?.byteLength) throw new Error('The video encoder returned an empty file.');
