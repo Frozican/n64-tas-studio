@@ -20,7 +20,21 @@ export class N64WasmCore {
     if (window.__n64TasAudioTapInstalled) return;
     window.__n64TasAudioTapInstalled = true;
     window.__n64TasAudioContexts = new Set();
-    const prototype = window.AudioNode?.prototype;
+    // Track contexts as soon as the emulator creates them, including contexts
+    // whose output graph is connected only after the first game frame.
+    for (const key of ['AudioContext', 'webkitAudioContext']) {
+      const NativeContext = window[key];
+      if (!NativeContext || NativeContext.__n64TasTracked) continue;
+      class TrackedAudioContext extends NativeContext {
+        constructor(...args) {
+          super(...args);
+          window.__n64TasAudioContexts.add(this);
+        }
+      }
+      Object.defineProperty(TrackedAudioContext, '__n64TasTracked', { value: true });
+      window[key] = TrackedAudioContext;
+    }
+    const prototype = window.AudioNode?.prototype || window.webkitAudioNode?.prototype;
     if (!prototype || prototype.__n64TasOriginalConnect) return;
     const originalConnect = prototype.connect;
     prototype.__n64TasOriginalConnect = originalConnect;
@@ -38,13 +52,17 @@ export class N64WasmCore {
   }
   startAudioCapture() {
     const contexts = [...(window.__n64TasAudioContexts || [])];
-    const context = contexts.find(item => item.state !== 'closed');
-    if (!context || typeof context.createMediaStreamDestination !== 'function') {
-      throw new Error('The N64 audio output could not be detected. Start the game and check that sound is enabled.');
+    const context = contexts.find(item => item.state !== 'closed' && typeof item.createMediaStreamDestination === 'function');
+    if (!context) {
+      throw new Error('The N64 audio engine has not created an AudioContext yet. Start the game, advance a few frames, then try recording again.');
+    }
+    const outputs = [...(context.__n64TasAudioOutputs || [])];
+    if (!outputs.length) {
+      throw new Error('The N64 audio context exists, but no speaker output is connected. Check that game sound is enabled and advance a few frames before recording.');
     }
     const destination = context.createMediaStreamDestination();
     context.__n64TasRecordingDestination = destination;
-    for (const node of context.__n64TasAudioOutputs || []) { try { node.connect(destination); } catch {} }
+    for (const node of outputs) { try { node.connect(destination); } catch {} }
     this.audioCaptureContext = context;
     this.audioCaptureDestination = destination;
     return destination.stream;
