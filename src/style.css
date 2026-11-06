@@ -82,3 +82,9 @@
 .axis-field{display:flex;align-items:center;gap:4px}.axis-field>label:first-child{width:10px}.same-axis{display:flex;align-items:center;gap:3px;font-size:8px;white-space:nowrap;color:#aeb6c8}
 .same-axis input{width:12px!important;height:12px;margin:0;accent-color:var(--purple)}
 .stick input:disabled{opacity:.45;cursor:not-allowed}
+
+/* Keep per-axis inheritance controls beside the timeline joystick values. */
+.stick-values .axis-value{align-items:center;justify-content:flex-start;gap:8px;white-space:nowrap}
+.stick-values .axis-value>b{min-width:18px;text-align:right}
+.stick-values .axis-value .same-axis{margin-left:2px;font:8px Manrope,sans-serif}
+@media(max-width:560px){.stick-values .axis-value{gap:5px}.stick-values .axis-value .same-axis{font-size:7px}}
