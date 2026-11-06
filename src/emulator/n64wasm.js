@@ -18,6 +18,45 @@ export class N64WasmCore {
     this.probeContext=this.probeCanvas.getContext('2d',{willReadFrequently:true}); this.previousVisualPixels=null;
     this.installAudioTap();
   }
+  beginPcmCapture() {
+    if (!this.Module || typeof this.Module._neilGetSoundBufferResampledAddress !== 'function' ||
+        typeof this.Module._neilGetAudioWritePosition !== 'function') {
+      throw new Error('The N64 core audio capture bridge is unavailable. Reload the page after the audio update.');
+    }
+    this.audioChunks = [];
+    this.audioSampleCount = 0;
+    this.audioReadPosition = this.Module._neilGetAudioWritePosition() >>> 0;
+    this.audioBufferPointer = this.Module._neilGetSoundBufferResampledAddress() >>> 0;
+    this.audioCaptureEnabled = true;
+  }
+  capturePcmAudio() {
+    const module = this.Module;
+    const writePosition = module._neilGetAudioWritePosition() >>> 0;
+    const capacity = 64000;
+    let count = (writePosition - this.audioReadPosition + capacity) % capacity;
+    if (!count) return;
+    if (count > capacity / 2) {
+      console.warn('N64 audio capture overrun; keeping the newest audio samples.');
+      count = capacity / 2;
+      this.audioReadPosition = (writePosition - count + capacity) % capacity;
+    }
+    const start = this.audioReadPosition;
+    const firstCount = Math.min(count, capacity - start);
+    const base = this.audioBufferPointer >>> 1;
+    const first = module.HEAP16.slice(base + start, base + start + firstCount);
+    this.audioChunks.push(first);
+    if (count > firstCount) this.audioChunks.push(module.HEAP16.slice(base, base + count - firstCount));
+    this.audioSampleCount += count;
+    this.audioReadPosition = writePosition;
+  }
+  finishPcmCapture() {
+    this.audioCaptureEnabled = false;
+    const samples = new Int16Array(this.audioSampleCount);
+    let offset = 0;
+    for (const chunk of this.audioChunks || []) { samples.set(chunk, offset); offset += chunk.length; }
+    this.audioChunks = [];
+    return samples;
+  }
   installAudioTap() {
     if (window.__n64TasAudioTapInstalled) return;
     window.__n64TasAudioTapInstalled = true;
@@ -155,6 +194,7 @@ export class N64WasmCore {
     if(!this.ready) throw new Error('N64 core is not ready.');
     this.setInput(frame);
     this.Module._runMainLoop();
+    if (this.audioCaptureEnabled) this.capturePcmAudio();
     // Force queued WebGL commands to complete before any canvas snapshot.
     const gl = this.Module.canvas?.getContext('webgl2') || this.Module.canvas?.getContext('webgl') || this.Module.canvas?.getContext('experimental-webgl');
     if (gl) gl.finish();
