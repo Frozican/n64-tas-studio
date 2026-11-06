@@ -431,6 +431,14 @@ async function recordSelectedRange() {
   try {
     originalState = core.saveState();
     if (!originalState) throw new Error('Could not save the current emulator state.');
+    const checkpointsBefore = [...checkpoints.keys()].filter(frame => frame <= from).sort((a,b) => b-a);
+    const checkpointFrame = checkpointsBefore.length ? checkpointsBefore[0] : 0;
+    const checkpoint = checkpoints.get(checkpointFrame) || core.initialState;
+    if (!checkpoint) throw new Error('No initial savestate is available.');
+    core.loadState(checkpoint, checkpointFrame);
+    for (let frame = checkpointFrame; frame < from; frame += 1) {
+      core.step(resolvedFrame(frame));
+    }
     audioStream = core.startAudioCapture();
     if (core.audioCaptureContext?.state === 'suspended') await core.audioCaptureContext.resume();
     videoStream = core.Module.canvas.captureStream(60);
@@ -440,18 +448,10 @@ async function recordSelectedRange() {
     recorder.addEventListener('dataavailable', event => { if (event.data?.size) chunks.push(event.data); });
     stopPromise = waitForRecorder(recorder);
     recorder.start(1000);
-    const checkpointsBefore = [...checkpoints.keys()].filter(frame => frame <= from).sort((a,b) => b-a);
-    const checkpointFrame = checkpointsBefore.length ? checkpointsBefore[0] : 0;
-    const checkpoint = checkpoints.get(checkpointFrame) || core.initialState;
-    if (!checkpoint) throw new Error('No initial savestate is available.');
-    core.loadState(checkpoint, checkpointFrame);
-    for (let frame = checkpointFrame; frame < from; frame += 1) {
-      core.step(resolvedFrame(frame));
-    }
+    const total = to - from + 1;
     for (let frame = from; frame <= to; frame += 1) {
       core.step(resolvedFrame(frame));
       const completed = frame - from + 1;
-      const total = to - from + 1;
       const percent = Math.round(completed / total * 100);
       $('#recordProgressBar').style.width = percent + '%';
       $('#recordProgress').textContent = 'Recording frame ' + completed + ' / ' + total + ' (' + percent + '%)';
