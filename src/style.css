@@ -113,3 +113,10 @@
 .recording-controls input[type=text]{display:block;width:100%;min-width:0;min-height:48px;background:#0c1019;border:1px solid #343b4d;border-radius:7px;padding:10px;color:#f1f2f8;font:16px 'DM Mono',monospace;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:pan-y}
 .recording-controls button{grid-column:1/-1}
 @media(max-width:560px){.recording-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.recording-controls label{flex:initial}.recording-controls input[type=text]{width:100%;font-size:16px}}
+
+/* Stable two-column frame range layout */
+.recording-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:16px;align-items:end}
+.recording-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.recording-field label{display:block;color:#aeb6c8;font-size:12px;pointer-events:auto}
+.recording-field input{display:block;width:100%;min-width:0;min-height:48px;background:#0c1019;border:1px solid #343b4d;border-radius:7px;padding:10px;color:#f1f2f8;font:16px 'DM Mono',monospace;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:manipulation}
+.recording-controls #recordButton{grid-column:1/-1;min-height:48px}
