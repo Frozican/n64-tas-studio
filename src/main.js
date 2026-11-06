@@ -21,7 +21,7 @@ $('#app').innerHTML = `
 <div class="notice warning"><b>!</b><div><strong>Experimental N64 core — frame stepping enabled</strong><p>The emulator is now driven one core frame at a time. Timeline playback and frame advance use the same stepping path. Game compatibility and repeatability still need testing with individual ROMs before treating a run as verified.</p></div></div>
 <section class="workspace">
 <article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>N64WASM · MANUAL CORE STEPPING</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev" class="step-button" title="Restore the previous frame">◀ −1</button><button class="primary play" id="play">▶ Run game</button><button id="next" class="step-button" title="Advance exactly one N64 frame">+1 ▶</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
-<article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
+<article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"><span class="same-axis"><input id="xSame" type="checkbox"> Same as before</span></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"><span class="same-axis"><input id="ySame" type="checkbox"> Same as before</span></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
 </section>
 <section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span id="timelineHint">Unchanged rendered frames are hidden</span><label class="show-unchanged"><input id="showUnchanged" type="checkbox"> Show unchanged frames</label><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
 <section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>Self-hosted WebAssembly core</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
@@ -32,6 +32,19 @@ $('#app').innerHTML = `
 // One synchronous call to the core advances exactly one N64 video frame.
 function invalidateCheckpointsAfter(frame) {
   for (const key of [...checkpoints.keys()]) if (key > frame) checkpoints.delete(key);
+}
+function effectiveAxis(frameIndex, axis) {
+  let index = frameIndex;
+  while (index > 0) {
+    const frame = ensureFrame(index);
+    if (!frame[`stick${axis}Same`]) return frame[`stick${axis}`];
+    index -= 1;
+  }
+  return 0;
+}
+function resolvedFrame(frameIndex) {
+  const frame = ensureFrame(frameIndex);
+  return { ...frame, stickX: effectiveAxis(frameIndex, 'X'), stickY: effectiveAxis(frameIndex, 'Y') };
 }
 function invalidateVisualFramesAfter(frame) {
   for (const key of [...visualDuplicateFrames.keys()]) if (key > frame) visualDuplicateFrames.delete(key);
@@ -65,7 +78,7 @@ function go(index) {
 function stepCoreFrame(shouldRender = true) {
   if (!core?.ready) { toast('Start the N64 core before advancing the live game.'); return false; }
   try {
-    const visualChanged = core.step(ensureFrame(selected));
+    const visualChanged = core.step(resolvedFrame(selected));
     visualDuplicateFrames.set(selected + 1, visualChanged === false);
     selected += 1;
     ensureFrame(selected);
@@ -91,7 +104,7 @@ async function seekCoreTo(target) {
     core.loadState(checkpoint, checkpointFrame);
     selected = checkpointFrame;
     while (selected < destination) {
-      const visualChanged = core.step(ensureFrame(selected));
+      const visualChanged = core.step(resolvedFrame(selected));
       visualDuplicateFrames.set(selected + 1, visualChanged === false);
       selected += 1;
       saveCheckpoint(selected);
@@ -118,7 +131,7 @@ function render() {
   const frame = ensureFrame(selected);
   $('#frameNo').textContent = String(selected).padStart(6, '0');
   $('#frameLabel').textContent = 'FRAME ' + selected;
-  $('#jump').value = selected; $('#x').value = frame.stickX; $('#y').value = frame.stickY; $('#name').value = project.name;
+  $('#jump').value = selected; $('#x').value = effectiveAxis(selected, 'X'); $('#y').value = effectiveAxis(selected, 'Y'); $('#xSame').checked = !!frame.stickXSame; $('#ySame').checked = !!frame.stickYSame; $('#x').disabled = !!frame.stickXSame; $('#y').disabled = !!frame.stickYSame; $('#name').value = project.name;
   $('#count').textContent = project.frames.length + ' FRAME' + (project.frames.length === 1 ? '' : 'S');
   $('#total').textContent = project.frames.length;
   $('#inputs').textContent = project.frames.filter(item => item.buttons.length || item.stickX || item.stickY).length;
@@ -129,13 +142,14 @@ function render() {
     button.setAttribute('aria-pressed', String(frame.buttons.includes(button.dataset.b)));
   });
   const cells = $('#cells'); cells.style.setProperty('--cell', (28 + Number($('#zoom').value)*10) + 'px'); cells.innerHTML = '';
-  $('#timelineX').textContent = frame.stickX;
-  $('#timelineY').textContent = frame.stickY;
+  const effectiveX = effectiveAxis(selected, 'X'), effectiveY = effectiveAxis(selected, 'Y');
+  $('#timelineX').textContent = effectiveX;
+  $('#timelineY').textContent = effectiveY;
   const knob = $('#timelineKnob');
-  knob.style.left = (50 + frame.stickX / 127 * 38) + '%';
-  knob.style.top = (50 - frame.stickY / 127 * 38) + '%';
-  $('#timelineStick').setAttribute('aria-valuenow', String(frame.stickX));
-  $('#timelineStick').setAttribute('aria-valuetext', 'X ' + frame.stickX + ', Y ' + frame.stickY);
+  knob.style.left = (50 + effectiveX / 127 * 38) + '%';
+  knob.style.top = (50 - effectiveY / 127 * 38) + '%';
+  $('#timelineStick').setAttribute('aria-valuenow', String(effectiveX));
+  $('#timelineStick').setAttribute('aria-valuetext', 'X ' + effectiveX + ', Y ' + effectiveY);
   const start = Math.max(0, selected - 14);
   const end = Math.min(Math.max(project.frames.length - 1, selected + 18), start + 180);
   const trackButtons = ['A','B','Z','L','R','Start','↑','↓','←','→','C↑','C↓','C←','C→'];
@@ -173,10 +187,10 @@ function render() {
     });
     const analog = document.createElement('span');
     analog.className = 'timeline-analog' + ((item.stickX || item.stickY) ? ' has-stick' : '');
-    analog.textContent = item.stickX + ' / ' + item.stickY;
+    analog.textContent = effectiveAxis(index, 'X') + ' / ' + effectiveAxis(index, 'Y') + (item.stickXSame || item.stickYSame ? ' ↳' : '');
     row.append(analog);
-    row.title = 'Frame ' + index + ' · Buttons: ' + (item.buttons.join(', ') || 'none') + ' · Stick X ' + item.stickX + ', Y ' + item.stickY;
-    row.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (item.buttons.join(', ') || 'none') + '. Stick X ' + item.stickX + ', Y ' + item.stickY);
+    row.title = 'Frame ' + index + ' · Buttons: ' + (item.buttons.join(', ') || 'none') + ' · Stick X ' + effectiveAxis(index, 'X') + ', Y ' + effectiveAxis(index, 'Y');
+    row.setAttribute('aria-label', 'Frame ' + index + '. Buttons: ' + (item.buttons.join(', ') || 'none') + '. Stick X ' + effectiveAxis(index, 'X') + ', Y ' + effectiveAxis(index, 'Y'));
     row.onclick = () => selectTimelineFrame(index);
     cells.append(row);
   }
@@ -223,17 +237,30 @@ function toggle(buttonName) {
   project.updatedAt = new Date().toISOString(); render();
 }
 document.querySelectorAll('[data-b]').forEach(button => button.addEventListener('click', () => toggle(button.dataset.b)));
-function setStick(x, y) {
+function setStick(x, y, explicitAxes = ['X', 'Y']) {
   const frame = ensureFrame(selected);
   invalidateCheckpointsAfter(selected);
   invalidateVisualFramesAfter(selected);
-  frame.stickX = Math.max(-128, Math.min(127, Math.round(x)));
-  frame.stickY = Math.max(-128, Math.min(127, Math.round(y)));
+  if (explicitAxes.includes('X')) { frame.stickX = Math.max(-128, Math.min(127, Math.round(x))); frame.stickXSame = false; }
+  if (explicitAxes.includes('Y')) { frame.stickY = Math.max(-128, Math.min(127, Math.round(y))); frame.stickYSame = false; }
   project.updatedAt = new Date().toISOString();
   render();
 }
-$('#x').addEventListener('change', event => { setStick(Number(event.target.value) || 0, ensureFrame(selected).stickY); });
-$('#y').addEventListener('change', event => { setStick(ensureFrame(selected).stickX, Number(event.target.value) || 0); });
+$('#x').addEventListener('change', event => { setStick(Number(event.target.value) || 0, effectiveAxis(selected, 'Y'), ['X']); });
+$('#y').addEventListener('change', event => { setStick(effectiveAxis(selected, 'X'), Number(event.target.value) || 0, ['Y']); });
+function setAxisSame(axis, same) {
+  const frame = ensureFrame(selected);
+  invalidateCheckpointsAfter(selected);
+  invalidateVisualFramesAfter(selected);
+  const key = axis === 'X' ? 'stickXSame' : 'stickYSame';
+  const valueKey = axis === 'X' ? 'stickX' : 'stickY';
+  if (!same) frame[valueKey] = effectiveAxis(selected, axis);
+  frame[key] = same;
+  project.updatedAt = new Date().toISOString();
+  render();
+}
+$('#xSame').addEventListener('change', event => setAxisSame('X', event.target.checked));
+$('#ySame').addEventListener('change', event => setAxisSame('Y', event.target.checked));
 const timelineStick = $('#timelineStick');
 let draggingStick = false;
 function updateStickFromPointer(event) {
@@ -320,7 +347,7 @@ $('#play').addEventListener('click', () => {
 });
 $('#add').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+1));
 $('#add60').addEventListener('click', () => go(Math.max(...project.frames.map(item => item.frame), 0)+60));
-$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); invalidateCheckpointsAfter(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; render(); });
+$('#clear').addEventListener('click', () => { const frame = ensureFrame(selected); invalidateCheckpointsAfter(selected); frame.buttons = []; frame.stickX = 0; frame.stickY = 0; frame.stickXSame = false; frame.stickYSame = false; render(); });
 $('#romFile').addEventListener('change', event => {
   const file = event.target.files?.[0]; if (!file) return;
   if (core?.ready) { toast('Reload the page before selecting a different ROM.'); event.target.value = ''; return; }
