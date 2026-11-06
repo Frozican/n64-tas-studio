@@ -442,7 +442,7 @@ function buildMjpegAvi(frames, width, height, audioSamples) {
   aviFourCC(ah, 0, 'auds');
   ah.setUint32(20, 4, true); ah.setUint32(24, 176400, true);
   ah.setUint32(32, audioSamples.length / 2, true); ah.setUint32(36, audioBytes, true);
-  ah.setUint32(44, 4, true); ah.setUint32(48, 4, true);
+  ah.setUint32(44, 4, true);
   const audioFormat = new Uint8Array(16), af = new DataView(audioFormat.buffer);
   af.setUint16(0, 1, true); af.setUint16(2, 2, true); af.setUint32(4, 44100, true);
   af.setUint32(8, 176400, true); af.setUint16(12, 4, true); af.setUint16(14, 16, true);
