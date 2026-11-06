@@ -531,7 +531,12 @@ async function recordSelectedRange() {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-    const audioSamples = core.finishPcmCapture();
+    const capturedAudio = core.finishPcmCapture();
+    // The core's PCM output leads the first captured video frame slightly.
+    // Delay audio by one 60 Hz frame (735 stereo sample frames at 44.1 kHz).
+    const audioDelaySamples = Math.round(44100 / 60) * 2;
+    const audioSamples = new Int16Array(audioDelaySamples + capturedAudio.length);
+    audioSamples.set(capturedAudio, audioDelaySamples);
     const avi = buildMjpegAvi(frames, capture.width, capture.height, audioSamples);
     const blob = new Blob([avi], { type: 'video/x-msvideo' });
     const url = URL.createObjectURL(blob), link = document.createElement('a');
