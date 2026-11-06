@@ -28,8 +28,8 @@ $('#app').innerHTML = `
 <section class="panel recorder-panel">
 <div class="heading">RECORDING <span>VIDEO + AUDIO</span></div>
 <div class="recording-controls">
-<label>From <input id="recordFrom" type="number" min="0" value="0"></label>
-<label>To <input id="recordTo" type="number" min="0" value="300"></label>
+<label>From <input id="recordFrom" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="First frame to record" value="0"></label>
+<label>To <input id="recordTo" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Last frame to record" value="300"></label>
 <button id="recordButton" class="primary">● Record range</button>
 </div>
 <div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as a video with sound.</span></div>
@@ -413,8 +413,12 @@ async function recordSelectedRange() {
   if (recording) return;
   if (!core?.ready) { toast('Load a ROM and start the N64 core first.'); return; }
   if (!window.MediaRecorder || !core.Module?.canvas?.captureStream) { toast('This browser does not support video recording.'); return; }
-  const from = Math.max(0, Math.floor(Number($('#recordFrom').value) || 0));
-  const to = Math.max(0, Math.floor(Number($('#recordTo').value) || 0));
+  const fromText = $('#recordFrom').value.trim();
+  const toText = $('#recordTo').value.trim();
+  if (!/^\\d+$/.test(fromText) || !/^\\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
+  const from = Number(fromText);
+  const to = Number(toText);
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) { toast('Frame numbers are too large.'); return; }
   if (to < from) { toast('The To frame must be greater than or equal to From.'); return; }
   if (to - from > 18000) { toast('Please record a maximum of 18,001 frames (about 5 minutes).'); return; }
   stop();
@@ -492,8 +496,6 @@ function completedDuration(frames) {
   return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
 }
 $('#recordButton').addEventListener('click', () => { void recordSelectedRange(); });
-$('#recordFrom').addEventListener('change', event => { event.target.value = Math.max(0, Math.floor(Number(event.target.value) || 0)); });
-$('#recordTo').addEventListener('change', event => { event.target.value = Math.max(0, Math.floor(Number(event.target.value) || 0)); });
 
 $('#open').addEventListener('click', () => $('#projectFile').click());
 $('#projectFile').addEventListener('change', async event => {
