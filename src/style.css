@@ -78,3 +78,7 @@
 .show-unchanged{display:flex;align-items:center;gap:6px;font-size:10px;color:#bbc2d1;white-space:nowrap}
 .show-unchanged input{accent-color:var(--purple)}
 #timelineHint{margin-right:auto}
+
+.same-axis{display:flex;align-items:center;gap:3px;font-size:8px;white-space:nowrap;color:#aeb6c8}
+.same-axis input{width:12px!important;height:12px;margin:0;accent-color:var(--purple)}
+.stick input:disabled{opacity:.45;cursor:not-allowed}
