@@ -12,6 +12,8 @@ export class N64WasmCore {
   constructor({root,onStatus=()=>{}}) {
     this.root=root; this.onStatus=onStatus; this.Module=null;
     this.ready=false; this.frameCount=0; this.initialState=null; this.script=null;
+    this.visualCanvas=document.createElement('canvas'); this.visualCanvas.width=160; this.visualCanvas.height=120;
+    this.visualContext=this.visualCanvas.getContext('2d',{willReadFrequently:true}); this.previousVisualPixels=null;
   }
   async load(romFile) {
     this.onStatus('loading runtime');
@@ -83,7 +85,30 @@ export class N64WasmCore {
   step(frame) {
     if(!this.ready) throw new Error('N64 core is not ready.');
     this.setInput(frame); this.Module._runMainLoop(); this.frameCount+=1;
-    return this.frameCount;
+    return this.captureVisualChange();
+  }
+  captureVisualChange() {
+    const source=this.Module?.canvas;
+    if(!source || !this.visualContext) return true;
+    try {
+      this.visualContext.drawImage(source,0,0,160,120);
+      const pixels=this.visualContext.getImageData(0,0,160,120).data;
+      if(!this.previousVisualPixels) {
+        this.previousVisualPixels=new Uint8ClampedArray(pixels);
+        return true;
+      }
+      let changed=false;
+      for(let i=0;i<pixels.length;i+=1) {
+        if(pixels[i]!==this.previousVisualPixels[i]) { changed=true; break; }
+      }
+      this.previousVisualPixels=new Uint8ClampedArray(pixels);
+      return changed;
+    } catch(error) {
+      // Fail open: if the browser cannot read the rendered frame, never hide it.
+      console.warn('N64 visual-frame comparison unavailable:',error);
+      this.previousVisualPixels=null;
+      return true;
+    }
   }
   saveState() {
     if(!this.Module||typeof this.Module._neil_serialize!=='function') return null;
@@ -95,6 +120,7 @@ export class N64WasmCore {
     this.Module.FS.writeFile('savestate.gz',new Uint8Array(state));
     if(!this.Module._neil_unserialize()) throw new Error('The N64 core rejected the savestate.');
     this.frameCount=frameNumber;
+    this.previousVisualPixels=null;
   }
   reset() {
     if(!this.ready || !this.Module) throw new Error('N64 core is not ready.');
