@@ -500,7 +500,6 @@ async function recordSelectedRange() {
   try {
     originalState = core.saveState();
     if (!originalState) throw new Error('Could not save the current emulator state.');
-    core.beginPcmCapture();
     core.setUnpaced(true);
     const candidates = [...checkpoints.keys()].filter(frame => frame <= from).sort((x, y) => y - x);
     const checkpointFrame = candidates.length ? candidates[0] : 0;
@@ -511,6 +510,7 @@ async function recordSelectedRange() {
       core.step(resolvedFrame(frame));
       if ((frame - checkpointFrame) % 120 === 119) await new Promise(resolve => setTimeout(resolve, 0));
     }
+    core.beginPcmCapture();
     const canvas = core.Module.canvas;
     const capture = document.createElement('canvas');
     capture.width = canvas.width || 640; capture.height = canvas.height || 480;
