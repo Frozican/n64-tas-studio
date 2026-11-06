@@ -13,7 +13,9 @@ export class N64WasmCore {
     this.root=root; this.onStatus=onStatus; this.Module=null;
     this.ready=false; this.frameCount=0; this.initialState=null; this.script=null;
     this.visualCanvas=document.createElement('canvas'); this.visualCanvas.width=640; this.visualCanvas.height=480;
-    this.visualContext=this.visualCanvas.getContext('2d',{willReadFrequently:true}); this.previousVisualPixels=null;
+    this.visualContext=this.visualCanvas.getContext('2d',{willReadFrequently:true});
+    this.probeCanvas=document.createElement('canvas'); this.probeCanvas.width=640; this.probeCanvas.height=480;
+    this.probeContext=this.probeCanvas.getContext('2d',{willReadFrequently:true}); this.previousVisualPixels=null;
     this.installAudioTap();
   }
   installAudioTap() {
@@ -161,24 +163,32 @@ export class N64WasmCore {
   }
   captureVisualChange() {
     const source=this.Module?.canvas;
-    if(!source || !this.visualContext) return true;
+    if(!source || !this.visualContext || !this.probeContext) return true;
     try {
-      this.visualContext.drawImage(source,0,0,640,480);
-      const pixels=this.visualContext.getImageData(0,0,640,480).data;
-      if(!this.previousVisualPixels) {
-        this.previousVisualPixels=new Uint8ClampedArray(pixels);
-        return true;
+      // Read into a scratch surface first. WebGL may briefly expose a cleared
+      // buffer between VI updates; never replace the last complete image with it.
+      this.probeContext.clearRect(0,0,640,480);
+      this.probeContext.drawImage(source,0,0,640,480);
+      const pixels=this.probeContext.getImageData(0,0,640,480).data;
+      let visiblePixels=0;
+      for(let i=0;i<pixels.length;i+=4) {
+        if(pixels[i]>3 || pixels[i+1]>3 || pixels[i+2]>3) visiblePixels++;
+        if(visiblePixels>64) break;
       }
-      let changed=false;
-      for(let i=0;i<pixels.length;i+=1) {
-        if(pixels[i]!==this.previousVisualPixels[i]) { changed=true; break; }
+      if(visiblePixels<=64) return false;
+      let changed=!this.previousVisualPixels;
+      if(this.previousVisualPixels) {
+        for(let i=0;i<pixels.length;i+=1) {
+          if(pixels[i]!==this.previousVisualPixels[i]) { changed=true; break; }
+        }
       }
+      this.visualContext.putImageData(new ImageData(new Uint8ClampedArray(pixels),640,480),0,0);
       this.previousVisualPixels=new Uint8ClampedArray(pixels);
       return changed;
     } catch(error) {
-      // Fail open: if the browser cannot read the rendered frame, never hide it.
       console.warn('N64 visual-frame comparison unavailable:',error);
       this.previousVisualPixels=null;
+      try { this.visualContext.drawImage(source,0,0,640,480); } catch {}
       return true;
     }
   }
