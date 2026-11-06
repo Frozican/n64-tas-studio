@@ -443,11 +443,23 @@ async function recordSelectedRange() {
     for (let frame = checkpointFrame; frame < from; frame += 1) {
       core.step(resolvedFrame(frame));
     }
-    audioStream = core.startAudioCapture();
-    if (core.audioCaptureContext?.state === 'suspended') await core.audioCaptureContext.resume();
+    // Video recording must not depend on the N64 audio engine being detectable.
+    // Audio can be attached in a later export pass; capture it opportunistically only.
+    let audioAvailable = false;
+    try {
+      audioStream = core.startAudioCapture();
+      if (core.audioCaptureContext?.state === 'suspended') await core.audioCaptureContext.resume();
+      audioAvailable = Boolean(audioStream?.getAudioTracks().some(track => track.readyState === 'live'));
+    } catch (audioError) {
+      console.warn('N64 audio capture unavailable; continuing with video-only recording:', audioError);
+    }
     videoStream = core.Module.canvas.captureStream(60);
-    const combined = new MediaStream([...videoStream.getVideoTracks(), ...audioStream.getAudioTracks()]);
-    const mimeType = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(type => MediaRecorder.isTypeSupported(type));
+    const tracks = [...videoStream.getVideoTracks()];
+    if (audioAvailable) tracks.push(...audioStream.getAudioTracks());
+    const combined = new MediaStream(tracks);
+    const mimeType = audioAvailable
+      ? ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(type => MediaRecorder.isTypeSupported(type))
+      : ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(type => MediaRecorder.isTypeSupported(type));
     recorder = new MediaRecorder(combined, mimeType ? { mimeType } : undefined);
     recorder.addEventListener('dataavailable', event => { if (event.data?.size) chunks.push(event.data); });
     stopPromise = waitForRecorder(recorder);
@@ -472,8 +484,8 @@ async function recordSelectedRange() {
     link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi, '-') + '-frames-' + from + '-' + to + '.webm';
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
-    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' recording · ' + (blob.size / 1048576).toFixed(1) + ' MB';
-    toast('Video recording saved.');
+    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' video · ' + (blob.size / 1048576).toFixed(1) + ' MB' + (audioAvailable ? ' · audio included' : ' · video only (audio can be added later)');
+    toast(audioAvailable ? 'Video recording with audio saved.' : 'Video recording saved. Audio can be added later.');
   } catch (error) {
     console.error('TAS recording failed:', error);
     if (recorder?.state === 'recording') { recorder.stop(); try { await stopPromise; } catch {} }
