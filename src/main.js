@@ -33,6 +33,9 @@ $('#app').innerHTML = `
 function invalidateCheckpointsAfter(frame) {
   for (const key of [...checkpoints.keys()]) if (key > frame) checkpoints.delete(key);
 }
+function invalidateVisualFramesAfter(frame) {
+  for (const key of [...visualDuplicateFrames.keys()]) if (key > frame) visualDuplicateFrames.delete(key);
+}
 function saveCheckpoint(frame) {
   if (!core?.ready || frame % CHECKPOINT_INTERVAL !== 0) return;
   try {
@@ -198,6 +201,7 @@ async function editTimelineButton(frameIndex, buttonName) {
   // through the previous playhead so the changed input reaches the live core.
   const rewindFrame = Math.max(0, frameIndex - 3);
   invalidateCheckpointsAfter(rewindFrame);
+  invalidateVisualFramesAfter(rewindFrame);
   try {
     await seekCoreTo(rewindFrame);
     while (selected < resumeFrame) {
@@ -214,6 +218,7 @@ async function editTimelineButton(frameIndex, buttonName) {
 function toggle(buttonName) {
   const frame = ensureFrame(selected);
   invalidateCheckpointsAfter(selected);
+  invalidateVisualFramesAfter(selected);
   frame.buttons = frame.buttons.includes(buttonName) ? frame.buttons.filter(item => item !== buttonName) : [...frame.buttons, buttonName];
   project.updatedAt = new Date().toISOString(); render();
 }
@@ -221,6 +226,7 @@ document.querySelectorAll('[data-b]').forEach(button => button.addEventListener(
 function setStick(x, y) {
   const frame = ensureFrame(selected);
   invalidateCheckpointsAfter(selected);
+  invalidateVisualFramesAfter(selected);
   frame.stickX = Math.max(-128, Math.min(127, Math.round(x)));
   frame.stickY = Math.max(-128, Math.min(127, Math.round(y)));
   project.updatedAt = new Date().toISOString();
@@ -363,7 +369,7 @@ $('#export').addEventListener('click', () => {
 $('#open').addEventListener('click', () => $('#projectFile').click());
 $('#projectFile').addEventListener('change', async event => {
   const file = event.target.files?.[0]; if (!file) return;
-  try { project = normalizeProject(JSON.parse(await file.text())); selected = 0; checkpoints.clear(); if (core?.ready) { core.restoreInitial(); if (core.initialState) checkpoints.set(0, core.initialState); } render(); toast('Project imported.'); }
+  try { project = normalizeProject(JSON.parse(await file.text())); selected = 0; checkpoints.clear(); visualDuplicateFrames.clear(); if (core?.ready) { core.restoreInitial(); if (core.initialState) checkpoints.set(0, core.initialState); } render(); toast('Project imported.'); }
   catch (error) { toast(error.message || 'Could not open project.'); }
   event.target.value = '';
 });
