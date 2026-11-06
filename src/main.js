@@ -435,6 +435,9 @@ async function recordSelectedRange() {
     const { Output, BufferTarget, WebMOutputFormat, CanvasSource, Quality } = await import('mediabunny');
     originalState = core.saveState();
     if (!originalState) throw new Error('Could not save the current emulator state.');
+    // The upstream N64Wasm frontend throttles every main-loop call to real time.
+    // Disable that limiter for the complete offline render, then restore it.
+    core.setUnpaced(true);
     const checkpointsBefore = [...checkpoints.keys()].filter(frame => frame <= from).sort((a,b) => b-a);
     const checkpointFrame = checkpointsBefore.length ? checkpointsBefore[0] : 0;
     const checkpoint = checkpoints.get(checkpointFrame) || core.initialState;
@@ -496,6 +499,7 @@ async function recordSelectedRange() {
     $('#recordProgress').textContent = 'Recording failed: ' + (error.message || 'unknown error');
     toast('Recording failed: ' + (error.message || 'unknown error'));
   } finally {
+    core.setUnpaced(false);
     try { await output?.finalize?.(); } catch {}
     try { core.stopAudioCapture(); } catch {}
     if (originalState) {
