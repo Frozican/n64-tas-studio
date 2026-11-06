@@ -26,14 +26,14 @@ $('#app').innerHTML = `
 <section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span class="axis-value">X <b id="timelineX">0</b><label class="same-axis"><input id="xSame" type="checkbox"> Same as before</label></span><span class="axis-value">Y <b id="timelineY">0</b><label class="same-axis"><input id="ySame" type="checkbox"> Same as before</label></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span id="timelineHint">Unchanged rendered frames are hidden</span><label class="show-unchanged"><input id="showUnchanged" type="checkbox"> Show unchanged frames</label><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
 <section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>Self-hosted WebAssembly core</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
 <section class="panel recorder-panel">
-<div class="heading">RECORDING <span>VIDEO + AUDIO</span></div>
+<div class="heading">RECORDING <span>AVI · MJPEG</span></div>
 <div class="recording-controls">
 <div class="recording-field"><label for="recordFrom">From</label><input id="recordFrom" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="First frame to record" value="0"></div>
 <div class="recording-field"><label for="recordTo">To</label><input id="recordTo" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Last frame to record" value="300"></div>
 <button id="recordButton" class="primary">● Record range</button>
 </div>
-<div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as a video with sound.</span></div>
-<p class="hint">The range is rendered in the background at the game's 60 FPS so video and audio stay synchronized. The game view does not need to be watched.</p>
+<div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as an AVI video.</span></div>
+<p class="hint">The selected range is exported as Motion-JPEG AVI at 60 FPS. Audio is not included. The game view does not need to be watched.</p>
 </section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
@@ -402,113 +402,139 @@ $('#export').addEventListener('click', () => {
   link.click(); URL.revokeObjectURL(url); toast('TAS project exported.');
 });
 let recording = false;
+function aviFourCC(view, offset, value) {
+  for (let i = 0; i < 4; i++) view.setUint8(offset + i, value.charCodeAt(i));
+}
+function aviChunk(id, data) {
+  const out = new Uint8Array(8 + data.length + (data.length & 1));
+  const view = new DataView(out.buffer);
+  aviFourCC(view, 0, id); view.setUint32(4, data.length, true); out.set(data, 8);
+  return out;
+}
+function aviList(type, children) {
+  const size = 4 + children.reduce((sum, item) => sum + item.length, 0);
+  const out = new Uint8Array(8 + size + (size & 1));
+  const view = new DataView(out.buffer);
+  aviFourCC(view, 0, 'LIST'); view.setUint32(4, size, true); aviFourCC(view, 8, type);
+  let offset = 12;
+  for (const item of children) { out.set(item, offset); offset += item.length; }
+  return out;
+}
+function buildMjpegAvi(frames, width, height) {
+  const maxSize = frames.reduce((max, frame) => Math.max(max, frame.length), 0);
+  const avih = new Uint8Array(56), av = new DataView(avih.buffer);
+  av.setUint32(0, 1000000 / 60, true); av.setUint32(4, maxSize * 60, true);
+  av.setUint32(12, 0x10, true); av.setUint32(16, frames.length, true);
+  av.setUint32(24, 1, true); av.setUint32(28, maxSize, true);
+  av.setUint32(32, width, true); av.setUint32(36, height, true);
+  const strh = new Uint8Array(56), sh = new DataView(strh.buffer);
+  aviFourCC(sh, 0, 'vids'); aviFourCC(sh, 4, 'MJPG');
+  sh.setUint32(20, 1, true); sh.setUint32(24, 60, true);
+  sh.setUint32(32, frames.length, true); sh.setUint32(36, maxSize, true);
+  sh.setInt16(48, 0, true); sh.setInt16(50, 0, true);
+  sh.setInt16(52, Math.min(width, 32767), true); sh.setInt16(54, Math.min(height, 32767), true);
+  const strf = new Uint8Array(40), sf = new DataView(strf.buffer);
+  sf.setUint32(0, 40, true); sf.setInt32(4, width, true); sf.setInt32(8, height, true);
+  sf.setUint16(12, 1, true); sf.setUint16(14, 24, true); aviFourCC(sf, 16, 'MJPG');
+  sf.setUint32(20, maxSize, true);
+  const header = aviList('hdrl', [aviChunk('avih', avih), aviList('strl', [aviChunk('strh', strh), aviChunk('strf', strf)])]);
+  const moviChunks = [], index = [];
+  let moviOffset = 0;
+  for (const frame of frames) {
+    const item = aviChunk('00dc', frame);
+    index.push({ offset: moviOffset, size: frame.length });
+    moviChunks.push(item); moviOffset += item.length;
+  }
+  const movi = aviList('movi', moviChunks);
+  const idx = new Uint8Array(index.length * 16), iv = new DataView(idx.buffer);
+  index.forEach((entry, i) => {
+    const p = i * 16; aviFourCC(iv, p, '00dc');
+    iv.setUint32(p + 4, 0x10, true); iv.setUint32(p + 8, entry.offset, true);
+    iv.setUint32(p + 12, entry.size, true);
+  });
+  const idxChunk = aviChunk('idx1', idx);
+  const bodySize = 4 + header.length + movi.length + idxChunk.length;
+  const file = new Uint8Array(8 + bodySize), fv = new DataView(file.buffer);
+  aviFourCC(fv, 0, 'RIFF'); fv.setUint32(4, bodySize, true); aviFourCC(fv, 8, 'AVI ');
+  let p = 12;
+  for (const part of [header, movi, idxChunk]) { file.set(part, p); p += part.length; }
+  return file;
+}
+function encodeCanvasJpeg(canvas) {
+  return new Promise((resolve, reject) => canvas.toBlob(blob => {
+    if (!blob) return reject(new Error('Could not encode JPEG frame.'));
+    blob.arrayBuffer().then(buffer => resolve(new Uint8Array(buffer)), reject);
+  }, 'image/jpeg', 0.88));
+}
 async function recordSelectedRange() {
   if (recording) return;
   if (!core?.ready) { toast('Load a ROM and start the N64 core first.'); return; }
-  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
-    toast('This browser does not support frame-timestamped video encoding.');
-    return;
-  }
-  const fromText = String($('#recordFrom').value).trim();
-  const toText = String($('#recordTo').value).trim();
+  const fromText = String($('#recordFrom').value).trim(), toText = String($('#recordTo').value).trim();
   if (!/^\d+$/.test(fromText) || !/^\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
-  const from = Number(fromText);
-  const to = Number(toText);
+  const from = Number(fromText), to = Number(toText);
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) { toast('Frame numbers are too large.'); return; }
   if (to < from) { toast('The To frame must be greater than or equal to From.'); return; }
   if (to - from > 18000) { toast('Please record a maximum of 18,001 frames (about 5 minutes).'); return; }
-
-  stop();
-  recording = true;
+  stop(); recording = true;
   const button = $('#recordButton');
-  button.disabled = true;
-  button.textContent = 'Recording…';
+  button.disabled = true; button.textContent = 'Recording…';
   $('#recordProgressBar').style.width = '0%';
-  $('#recordProgress').textContent = 'Preparing frame-accurate video encoder…';
+  $('#recordProgress').textContent = 'Preparing AVI encoder…';
   const originalFrame = selected;
   let originalState = null;
-  let output = null;
-  let videoSource = null;
   try {
-    // Mediabunny writes explicit timestamps, so rendering speed on the phone
-    // cannot change the playback speed of the exported video.
-    const { Output, BufferTarget, WebMOutputFormat, CanvasSource, Quality } = await import('mediabunny');
     originalState = core.saveState();
     if (!originalState) throw new Error('Could not save the current emulator state.');
-    // The upstream N64Wasm frontend throttles every main-loop call to real time.
-    // Disable that limiter for the complete offline render, then restore it.
     core.setUnpaced(true);
-    const checkpointsBefore = [...checkpoints.keys()].filter(frame => frame <= from).sort((a,b) => b-a);
-    const checkpointFrame = checkpointsBefore.length ? checkpointsBefore[0] : 0;
+    const candidates = [...checkpoints.keys()].filter(frame => frame <= from).sort((x, y) => y - x);
+    const checkpointFrame = candidates.length ? candidates[0] : 0;
     const checkpoint = checkpoints.get(checkpointFrame) || core.initialState;
     if (!checkpoint) throw new Error('No initial savestate is available.');
     core.loadState(checkpoint, checkpointFrame);
-    for (let frame = checkpointFrame; frame < from; frame += 1) {
+    for (let frame = checkpointFrame; frame < from; frame++) {
       core.step(resolvedFrame(frame));
       if ((frame - checkpointFrame) % 120 === 119) await new Promise(resolve => setTimeout(resolve, 0));
     }
-
     const canvas = core.Module.canvas;
-    // Snapshot each completed emulator frame into a dedicated canvas. This
-    // prevents later emulator paints from changing a frame while the encoder
-    // is still consuming it (a source of intermittent tearing/flicker).
-    const captureCanvas = document.createElement('canvas');
-    captureCanvas.width = canvas.width || 640;
-    captureCanvas.height = canvas.height || 480;
-    const captureContext = captureCanvas.getContext('2d', { alpha: false });
-    if (!captureContext) throw new Error('Could not create the video frame buffer.');
-    output = new Output({ format: new WebMOutputFormat(), target: new BufferTarget() });
-    videoSource = new CanvasSource(captureCanvas, {
-      codec: 'vp8',
-      quality: new Quality('high')
-    });
-    output.addVideoTrack(videoSource, { frameRate: 60 });
-    await output.start();
-
-    const total = to - from + 1;
-    for (let frame = from; frame <= to; frame += 1) {
-      core.step(resolvedFrame(frame));
-      const index = frame - from;
-      // Freeze the rendered image before the next core step can repaint it.
-      captureContext.drawImage(canvas, 0, 0, captureCanvas.width, captureCanvas.height);
-      // Timestamp is derived from the TAS frame number, not wall-clock time.
-      await videoSource.add(index / 60, 1 / 60, { keyFrame: index === 0 });
-      const completed = index + 1;
-      if (completed % 10 === 0 || completed === total) {
-        const percent = Math.round(completed / total * 100);
+    const capture = document.createElement('canvas');
+    capture.width = canvas.width || 640; capture.height = canvas.height || 480;
+    const context = capture.getContext('2d', { alpha: false });
+    if (!context) throw new Error('Could not create video frame buffer.');
+    context.drawImage(canvas, 0, 0, capture.width, capture.height);
+    const frames = [], total = to - from + 1;
+    for (let frame = from; frame <= to; frame++) {
+      const changed = core.step(resolvedFrame(frame));
+      // Reuse the last complete image if this core step did not produce a new VI frame.
+      if (changed !== false) context.drawImage(canvas, 0, 0, capture.width, capture.height);
+      frames.push(await encodeCanvasJpeg(capture));
+      const done = frame - from + 1;
+      if (done % 10 === 0 || done === total) {
+        const percent = Math.round(done / total * 100);
         $('#recordProgressBar').style.width = percent + '%';
-        $('#recordProgress').textContent = 'Encoding frame ' + completed + ' / ' + total + ' (' + percent + '%)';
+        $('#recordProgress').textContent = 'Building AVI ' + done + ' / ' + total + ' (' + percent + '%)';
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-    videoSource.close();
-    await output.finalize();
-    const buffer = output.target.buffer;
-    if (!buffer?.byteLength) throw new Error('The video encoder returned an empty file.');
-    const blob = new Blob([buffer], { type: 'video/webm' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const avi = buildMjpegAvi(frames, capture.width, capture.height);
+    const blob = new Blob([avi], { type: 'video/x-msvideo' });
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
     link.href = url;
-    link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi, '-') + '-frames-' + from + '-' + to + '.webm';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' video · ' + (blob.size / 1048576).toFixed(1) + ' MB · fixed 60 FPS · audio not included';
-    toast('Frame-accurate video saved. Audio can be added later.');
+    link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi, '-') + '-frames-' + from + '-' + to + '.avi';
+    link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
+    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' AVI · ' + (blob.size / 1048576).toFixed(1) + ' MB · MJPEG · 60 FPS · no audio';
+    toast('AVI video saved.');
   } catch (error) {
     console.error('TAS recording failed:', error);
     $('#recordProgress').textContent = 'Recording failed: ' + (error.message || 'unknown error');
     toast('Recording failed: ' + (error.message || 'unknown error'));
   } finally {
     core.setUnpaced(false);
-    try { await output?.finalize?.(); } catch {}
     try { core.stopAudioCapture(); } catch {}
     if (originalState) {
       try { core.loadState(originalState, originalFrame); selected = originalFrame; render(); }
       catch (error) { console.error('Could not restore emulator after recording:', error); }
     }
-    recording = false;
-    button.disabled = false;
-    button.textContent = '● Record range';
+    recording = false; button.disabled = false; button.textContent = '● Record range';
   }
 }
 function completedDuration(frames) {
