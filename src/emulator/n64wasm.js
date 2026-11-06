@@ -14,6 +14,46 @@ export class N64WasmCore {
     this.ready=false; this.frameCount=0; this.initialState=null; this.script=null;
     this.visualCanvas=document.createElement('canvas'); this.visualCanvas.width=640; this.visualCanvas.height=480;
     this.visualContext=this.visualCanvas.getContext('2d',{willReadFrequently:true}); this.previousVisualPixels=null;
+    this.installAudioTap();
+  }
+  installAudioTap() {
+    if (window.__n64TasAudioTapInstalled) return;
+    window.__n64TasAudioTapInstalled = true;
+    window.__n64TasAudioContexts = new Set();
+    const prototype = window.AudioNode?.prototype;
+    if (!prototype || prototype.__n64TasOriginalConnect) return;
+    const originalConnect = prototype.connect;
+    prototype.__n64TasOriginalConnect = originalConnect;
+    prototype.connect = function(destination, ...args) {
+      const context = this.context;
+      if (context && destination === context.destination) {
+        window.__n64TasAudioContexts.add(context);
+        const tap = context.__n64TasRecordingDestination;
+        if (tap && !this.__n64TasTapped) {
+          try { originalConnect.call(this, tap); this.__n64TasTapped = true; } catch {}
+        }
+      }
+      return originalConnect.call(this, destination, ...args);
+    };
+  }
+  startAudioCapture() {
+    const contexts = [...(window.__n64TasAudioContexts || [])];
+    const context = contexts.find(item => item.state !== 'closed');
+    if (!context || typeof context.createMediaStreamDestination !== 'function') {
+      throw new Error('The N64 audio output could not be detected. Start the game and check that sound is enabled.');
+    }
+    const destination = context.createMediaStreamDestination();
+    context.__n64TasRecordingDestination = destination;
+    this.audioCaptureContext = context;
+    this.audioCaptureDestination = destination;
+    return destination.stream;
+  }
+  stopAudioCapture() {
+    if (this.audioCaptureContext) delete this.audioCaptureContext.__n64TasRecordingDestination;
+    this.audioCaptureDestination?.stream.getTracks().forEach(track => track.stop());
+    this.audioCaptureContext = null;
+    this.audioCaptureDestination = null;
+  }
   }
   async load(romFile) {
     this.onStatus('loading runtime');
