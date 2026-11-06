@@ -9,6 +9,7 @@ let selectedRom = null;
 let emulatorStarted = false;
 let core = null;
 const checkpoints = new Map();
+const visualDuplicateFrames = new Map();
 const CHECKPOINT_INTERVAL = 60;
 const MAX_CHECKPOINTS = 24;
 const $ = selector => document.querySelector(selector);
@@ -22,7 +23,7 @@ $('#app').innerHTML = `
 <article class="panel"><div class="heading">GAME VIEW <span id="gameStatus">WAITING FOR ROM</span></div><div class="screen emulatorScreen"><div id="emulatorPlayer"></div><div id="emptyScreen"><div class="screenlogo">N<span>64</span></div><h2>Load your own ROM</h2><p>Choose a ROM above, then start the emulator.</p><button id="startEmulator" class="primary">▶ Start N64 emulator</button><small>N64WASM · MANUAL CORE STEPPING</small></div></div><div class="transport"><button id="reset">↺ Reset</button><button id="prev" class="step-button" title="Restore the previous frame">◀ −1</button><button class="primary play" id="play">▶ Run game</button><button id="next" class="step-button" title="Advance exactly one N64 frame">+1 ▶</button><div class="frameNo"><small>SELECTED FRAME</small><b id="frameNo">000000</b></div></div></article>
 <article class="panel"><div class="heading">CONTROLLER 1 <span id="frameLabel">FRAME 0</span></div><div class="controller"><div class="dpad"><button data-b="↑">↑</button><button data-b="←">←</button><button data-b="→">→</button><button data-b="↓">↓</button></div><div class="stick"><div>●</div><small>ANALOG STICK</small><label>X <input id="x" type="number" min="-128" max="127" value="0"></label><label>Y <input id="y" type="number" min="-128" max="127" value="0"></label></div><div class="face"><button data-b="C↑">C↑</button><button data-b="C←">C←</button><button data-b="C→">C→</button><button data-b="C↓">C↓</button><button data-b="A">A</button><button data-b="B">B</button></div></div><div class="shoulders"><button data-b="L">L</button><button data-b="Z">Z</button><button data-b="R">R</button><button data-b="Start">START</button></div><div class="footnote">Tap buttons to toggle input <button id="clear">Clear frame</button></div></article>
 </section>
-<section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span>Select a cell to edit its input</span><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
+<section class="panel timeline"><div class="heading">INPUT TIMELINE <span id="count">1 FRAME</span><div><button id="add60">+ 60 frames</button><button id="add">+ Frame</button></div></div><div class="timeline-joystick"><div><strong>ANALOG STICK</strong><small>Drag the stick to set X/Y for the selected frame</small></div><div id="timelineStick" class="timeline-stick" role="slider" aria-label="Analog stick direction" aria-valuemin="-128" aria-valuemax="127" tabindex="0"><div class="stick-cross horizontal"></div><div class="stick-cross vertical"></div><div id="timelineKnob" class="timeline-knob"></div></div><div class="stick-values"><span>X <b id="timelineX">0</b></span><span>Y <b id="timelineY">0</b></span><button id="stickCenter">Center</button></div></div><div class="timeline-tools"><label>Go to frame <input id="jump" type="number" min="0" value="0"></label><span id="timelineHint">Unchanged rendered frames are hidden</span><label class="show-unchanged"><input id="showUnchanged" type="checkbox"> Show unchanged frames</label><label>Zoom <input id="zoom" type="range" min="1" max="4" value="2"></label></div><div id="cells" class="cells"></div></section>
 <section class="lower"><article class="panel"><div class="heading">PROJECT <span>LOCAL</span></div><label class="projectName">Project name<input id="name" value="Untitled N64 TAS" maxlength="80"></label><div class="stats"><div><small>TOTAL FRAMES</small><b id="total">1</b></div><div><small>INPUT FRAMES</small><b id="inputs">0</b></div><div><small>TIME @ 60 FPS</small><b id="duration">00:00.0</b></div></div><p class="hint">Project stays in this browser until exported. ROM bytes are not uploaded.</p></article><article class="panel"><div class="heading">DEVELOPMENT STATUS <span>PHASE 1</span></div><div class="roadmap"><p>✓ <b>Responsive TAS UI</b><small>Timeline and controller input prototype</small></p><p>✓ <b>Project JSON</b><small>Import and export</small></p><p>✓ <b>Experimental N64 runtime</b><small>Self-hosted WebAssembly core</small></p><p>2 <b>True frame advance</b><small>Needs core-level stepping and input injection</small></p><p>3 <b>Determinism validation</b><small>Required before frame-perfect claims</small></p></div></article></section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
@@ -61,7 +62,8 @@ function go(index) {
 function stepCoreFrame(shouldRender = true) {
   if (!core?.ready) { toast('Start the N64 core before advancing the live game.'); return false; }
   try {
-    core.step(ensureFrame(selected));
+    const visualChanged = core.step(ensureFrame(selected));
+    visualDuplicateFrames.set(selected + 1, visualChanged === false);
     selected += 1;
     ensureFrame(selected);
     saveCheckpoint(selected);
@@ -86,7 +88,8 @@ async function seekCoreTo(target) {
     core.loadState(checkpoint, checkpointFrame);
     selected = checkpointFrame;
     while (selected < destination) {
-      core.step(ensureFrame(selected));
+      const visualChanged = core.step(ensureFrame(selected));
+      visualDuplicateFrames.set(selected + 1, visualChanged === false);
       selected += 1;
       saveCheckpoint(selected);
     }
@@ -140,6 +143,7 @@ function render() {
   const stickHead = document.createElement('span'); stickHead.textContent = 'STICK X/Y'; header.append(stickHead);
   cells.append(header);
   for (let index = start; index <= end; index++) {
+    if (!$('#showUnchanged').checked && visualDuplicateFrames.get(index) === true && index !== selected) continue;
     const item = project.frames.find(frame => frame.frame === index) || createFrame(index);
     const hasInput = item.buttons.length || item.stickX || item.stickY;
     const row = document.createElement('div');
@@ -257,6 +261,7 @@ $('#stickCenter').addEventListener('click', () => setStick(0, 0));
 $('#name').addEventListener('input', event => { project.name = event.target.value.slice(0,80); project.updatedAt = new Date().toISOString(); });
 $('#jump').addEventListener('change', event => selectTimelineFrame(Number(event.target.value)));
 $('#zoom').addEventListener('input', render);
+$('#showUnchanged').addEventListener('change', render);
 $('#prev').addEventListener('click', () => {
   stop();
   if (core?.ready) void seekCoreTo(Math.max(0, selected - 1));
@@ -274,6 +279,7 @@ $('#reset').addEventListener('click', () => {
       core.reset();
       selected = 0;
       checkpoints.clear();
+      visualDuplicateFrames.clear();
       if (core.initialState) checkpoints.set(0, core.initialState);
       ensureFrame(0); render();
       toast('Game reset to its initial state. TAS inputs were kept.');
@@ -331,7 +337,7 @@ $('#startEmulator').addEventListener('click', async () => {
   });
   try {
     await core.load(selectedRom);
-    emulatorStarted = true; selected = 0; checkpoints.clear();
+    emulatorStarted = true; selected = 0; checkpoints.clear(); visualDuplicateFrames.clear();
     if (core.initialState) checkpoints.set(0, core.initialState);
     $('#emptyScreen').classList.add('hidden');
     $('#coreStatus').textContent = '● N64WASM READY';
