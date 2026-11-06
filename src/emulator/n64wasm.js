@@ -55,7 +55,6 @@ export class N64WasmCore {
     this.audioCaptureContext = null;
     this.audioCaptureDestination = null;
   }
-  }
   async load(romFile) {
     this.onStatus('loading runtime');
     const [assetsResponse,romBuffer]=await Promise.all([fetch(assetUrl('assets.zip')),romFile.arrayBuffer()]);
