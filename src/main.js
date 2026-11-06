@@ -402,37 +402,37 @@ $('#export').addEventListener('click', () => {
   link.click(); URL.revokeObjectURL(url); toast('TAS project exported.');
 });
 let recording = false;
-function nextPaint() { return new Promise(resolve => requestAnimationFrame(resolve)); }
-function waitForRecorder(recorder) {
-  return new Promise((resolve, reject) => {
-    recorder.addEventListener('stop', () => resolve(), { once: true });
-    recorder.addEventListener('error', event => reject(event.error || new Error('Video recording failed.')), { once: true });
-  });
-}
 async function recordSelectedRange() {
   if (recording) return;
   if (!core?.ready) { toast('Load a ROM and start the N64 core first.'); return; }
-  if (!window.MediaRecorder || !core.Module?.canvas?.captureStream) { toast('This browser does not support video recording.'); return; }
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
+    toast('This browser does not support frame-timestamped video encoding.');
+    return;
+  }
   const fromText = String($('#recordFrom').value).trim();
   const toText = String($('#recordTo').value).trim();
-  if (!/^\d+$/.test(fromText) || !/^\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
+  if (!/^\\d+$/.test(fromText) || !/^\\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
   const from = Number(fromText);
   const to = Number(toText);
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) { toast('Frame numbers are too large.'); return; }
   if (to < from) { toast('The To frame must be greater than or equal to From.'); return; }
   if (to - from > 18000) { toast('Please record a maximum of 18,001 frames (about 5 minutes).'); return; }
+
   stop();
   recording = true;
   const button = $('#recordButton');
   button.disabled = true;
   button.textContent = 'Recording…';
   $('#recordProgressBar').style.width = '0%';
-  $('#recordProgress').textContent = 'Preparing audio and video…';
-  let videoStream, audioStream, recorder, stopPromise;
-  const chunks = [];
+  $('#recordProgress').textContent = 'Preparing frame-accurate video encoder…';
   const originalFrame = selected;
   let originalState = null;
+  let output = null;
+  let videoSource = null;
   try {
+    // Mediabunny writes explicit timestamps, so rendering speed on the phone
+    // cannot change the playback speed of the exported video.
+    const { Output, BufferTarget, WebMOutputFormat, CanvasSource, Quality } = await import('mediabunny');
     originalState = core.saveState();
     if (!originalState) throw new Error('Could not save the current emulator state.');
     const checkpointsBefore = [...checkpoints.keys()].filter(frame => frame <= from).sort((a,b) => b-a);
@@ -442,58 +442,53 @@ async function recordSelectedRange() {
     core.loadState(checkpoint, checkpointFrame);
     for (let frame = checkpointFrame; frame < from; frame += 1) {
       core.step(resolvedFrame(frame));
+      if ((frame - checkpointFrame) % 120 === 119) await new Promise(resolve => setTimeout(resolve, 0));
     }
-    // Video recording must not depend on the N64 audio engine being detectable.
-    // Audio can be attached in a later export pass; capture it opportunistically only.
-    let audioAvailable = false;
-    try {
-      audioStream = core.startAudioCapture();
-      if (core.audioCaptureContext?.state === 'suspended') await core.audioCaptureContext.resume();
-      audioAvailable = Boolean(audioStream?.getAudioTracks().some(track => track.readyState === 'live'));
-    } catch (audioError) {
-      console.warn('N64 audio capture unavailable; continuing with video-only recording:', audioError);
-    }
-    videoStream = core.Module.canvas.captureStream(60);
-    const tracks = [...videoStream.getVideoTracks()];
-    if (audioAvailable) tracks.push(...audioStream.getAudioTracks());
-    const combined = new MediaStream(tracks);
-    const mimeType = audioAvailable
-      ? ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'].find(type => MediaRecorder.isTypeSupported(type))
-      : ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(type => MediaRecorder.isTypeSupported(type));
-    recorder = new MediaRecorder(combined, mimeType ? { mimeType } : undefined);
-    recorder.addEventListener('dataavailable', event => { if (event.data?.size) chunks.push(event.data); });
-    stopPromise = waitForRecorder(recorder);
-    recorder.start(1000);
+
+    const canvas = core.Module.canvas;
+    output = new Output({ format: new WebMOutputFormat(), target: new BufferTarget() });
+    videoSource = new CanvasSource(canvas, {
+      codec: 'vp9',
+      quality: new Quality('medium'),
+      latencyMode: 'quality',
+      keyFrameInterval: 2
+    });
+    output.addVideoTrack(videoSource, { frameRate: 60 });
+    await output.start();
+
     const total = to - from + 1;
     for (let frame = from; frame <= to; frame += 1) {
       core.step(resolvedFrame(frame));
-      const completed = frame - from + 1;
-      const percent = Math.round(completed / total * 100);
-      $('#recordProgressBar').style.width = percent + '%';
-      $('#recordProgress').textContent = 'Recording frame ' + completed + ' / ' + total + ' (' + percent + '%)';
-      // Keep captureStream and the WebAudio output clock synchronized at 60 FPS.
-      await new Promise(resolve => setTimeout(resolve, 1000 / 60));
+      const index = frame - from;
+      // Timestamp is derived from the TAS frame number, not wall-clock time.
+      await videoSource.add(index / 60, 1 / 60, { keyFrame: index === 0 });
+      const completed = index + 1;
+      if (completed % 10 === 0 || completed === total) {
+        const percent = Math.round(completed / total * 100);
+        $('#recordProgressBar').style.width = percent + '%';
+        $('#recordProgress').textContent = 'Encoding frame ' + completed + ' / ' + total + ' (' + percent + '%)';
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     }
-    recorder.stop();
-    await stopPromise;
-    const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
-    if (!blob.size) throw new Error('The browser returned an empty recording.');
+    await output.finalize();
+    const buffer = output.target.buffer;
+    if (!buffer?.byteLength) throw new Error('The video encoder returned an empty file.');
+    const blob = new Blob([buffer], { type: 'video/webm' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = (project.name || 'n64-tas').replace(/[^a-z0-9-_]+/gi, '-') + '-frames-' + from + '-' + to + '.webm';
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
-    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' video · ' + (blob.size / 1048576).toFixed(1) + ' MB' + (audioAvailable ? ' · audio included' : ' · video only (audio can be added later)');
-    toast(audioAvailable ? 'Video recording with audio saved.' : 'Video recording saved. Audio can be added later.');
+    $('#recordProgress').textContent = 'Saved ' + completedDuration(total) + ' video · ' + (blob.size / 1048576).toFixed(1) + ' MB · fixed 60 FPS · audio not included';
+    toast('Frame-accurate video saved. Audio can be added later.');
   } catch (error) {
     console.error('TAS recording failed:', error);
-    if (recorder?.state === 'recording') { recorder.stop(); try { await stopPromise; } catch {} }
     $('#recordProgress').textContent = 'Recording failed: ' + (error.message || 'unknown error');
     toast('Recording failed: ' + (error.message || 'unknown error'));
   } finally {
+    try { await output?.finalize?.(); } catch {}
     try { core.stopAudioCapture(); } catch {}
-    videoStream?.getTracks().forEach(track => track.stop());
     if (originalState) {
       try { core.loadState(originalState, originalFrame); selected = originalFrame; render(); }
       catch (error) { console.error('Could not restore emulator after recording:', error); }
