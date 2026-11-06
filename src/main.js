@@ -415,7 +415,7 @@ async function recordSelectedRange() {
   if (!window.MediaRecorder || !core.Module?.canvas?.captureStream) { toast('This browser does not support video recording.'); return; }
   const fromText = $('#recordFrom').value.trim();
   const toText = $('#recordTo').value.trim();
-  if (!/^\\d+$/.test(fromText) || !/^\\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
+  if (!/^\d+$/.test(fromText) || !/^\d+$/.test(toText)) { toast('Enter a frame number in both fields.'); return; }
   const from = Number(fromText);
   const to = Number(toText);
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to)) { toast('Frame numbers are too large.'); return; }
