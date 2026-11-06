@@ -134,6 +134,10 @@ export class N64WasmCore {
     await runtimeReady;
     return this;
   }
+  setUnpaced(enabled) {
+    if (!this.Module || typeof this.Module._neil_tas_set_unpaced !== 'function') return;
+    this.Module._neil_tas_set_unpaced(enabled ? 1 : 0);
+  }
   setInput(frame) {
     if(!this.Module) throw new Error('N64 core is not initialized.');
     const pressed=new Set(frame?.buttons||[]);
