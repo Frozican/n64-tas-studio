@@ -12,7 +12,7 @@ export class N64WasmCore {
   constructor({root,onStatus=()=>{}}) {
     this.root=root; this.onStatus=onStatus; this.Module=null;
     this.ready=false; this.frameCount=0; this.initialState=null; this.script=null;
-    this.visualCanvas=document.createElement('canvas'); this.visualCanvas.width=160; this.visualCanvas.height=120;
+    this.visualCanvas=document.createElement('canvas'); this.visualCanvas.width=640; this.visualCanvas.height=480;
     this.visualContext=this.visualCanvas.getContext('2d',{willReadFrequently:true}); this.previousVisualPixels=null;
   }
   async load(romFile) {
@@ -91,8 +91,8 @@ export class N64WasmCore {
     const source=this.Module?.canvas;
     if(!source || !this.visualContext) return true;
     try {
-      this.visualContext.drawImage(source,0,0,160,120);
-      const pixels=this.visualContext.getImageData(0,0,160,120).data;
+      this.visualContext.drawImage(source,0,0,640,480);
+      const pixels=this.visualContext.getImageData(0,0,640,480).data;
       if(!this.previousVisualPixels) {
         this.previousVisualPixels=new Uint8ClampedArray(pixels);
         return true;
