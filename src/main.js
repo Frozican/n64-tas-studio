@@ -292,14 +292,11 @@ $('#play').addEventListener('click', () => {
   const tick = timestamp => {
     if (timer === null) return;
     if (!previousTime) previousTime = timestamp;
-    // Keep the full time debt after a slow browser frame. We catch up by
-    // simulating every due N64 frame, while rendering the UI only once per batch.
-    accumulator += Math.max(0, timestamp - previousTime);
+    accumulator += Math.min(250, timestamp - previousTime);
     previousTime = timestamp;
     let processed = 0;
-    // A larger batch limit prevents the old five-frame cap from making the
-    // emulator permanently run behind on slower devices.
-    while (accumulator >= frameDuration && selected < 10000 && processed < 30) {
+    // Run continuously; extend the timeline with empty frames as the game advances.
+    while (accumulator >= frameDuration && selected < 10000 && processed < 5) {
       if (!stepCoreFrame(false)) return;
       accumulator -= frameDuration; processed += 1;
     }
