@@ -28,10 +28,10 @@ export class N64WasmCore {
       const context = this.context;
       if (context && destination === context.destination) {
         window.__n64TasAudioContexts.add(context);
+        if (!context.__n64TasAudioOutputs) context.__n64TasAudioOutputs = new Set();
+        context.__n64TasAudioOutputs.add(this);
         const tap = context.__n64TasRecordingDestination;
-        if (tap && !this.__n64TasTapped) {
-          try { originalConnect.call(this, tap); this.__n64TasTapped = true; } catch {}
-        }
+        if (tap) { try { originalConnect.call(this, tap); } catch {} }
       }
       return originalConnect.call(this, destination, ...args);
     };
@@ -44,6 +44,7 @@ export class N64WasmCore {
     }
     const destination = context.createMediaStreamDestination();
     context.__n64TasRecordingDestination = destination;
+    for (const node of context.__n64TasAudioOutputs || []) { try { node.connect(destination); } catch {} }
     this.audioCaptureContext = context;
     this.audioCaptureDestination = destination;
     return destination.stream;
