@@ -500,12 +500,12 @@ async function recordSelectedRange() {
     capture.width = canvas.width || 640; capture.height = canvas.height || 480;
     const context = capture.getContext('2d', { alpha: false });
     if (!context) throw new Error('Could not create video frame buffer.');
-    context.drawImage(canvas, 0, 0, capture.width, capture.height);
+    context.drawImage(core.visualCanvas || canvas, 0, 0, capture.width, capture.height);
     const frames = [], total = to - from + 1;
     for (let frame = from; frame <= to; frame++) {
       const changed = core.step(resolvedFrame(frame));
       // Reuse the last complete image if this core step did not produce a new VI frame.
-      if (changed !== false) context.drawImage(canvas, 0, 0, capture.width, capture.height);
+      if (changed !== false) context.drawImage(core.visualCanvas || canvas, 0, 0, capture.width, capture.height);
       frames.push(await encodeCanvasJpeg(capture));
       const done = frame - from + 1;
       if (done % 10 === 0 || done === total) {
