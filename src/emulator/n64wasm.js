@@ -89,7 +89,12 @@ export class N64WasmCore {
     let resolveRuntime,rejectRuntime;
     const runtimeReady=new Promise((resolve,reject)=>{resolveRuntime=resolve;rejectRuntime=reject;});
     const module={
-      canvas,noInitialRun:true,locateFile:file=>assetUrl(file),
+      canvas,
+      // Keep the WebGL drawing buffer readable after presentation. Without
+      // this, browsers may discard it before TAS frame capture, producing
+      // intermittent black/old frames in exported recordings.
+      webglContextAttributes: { preserveDrawingBuffer: true, alpha: false, antialias: false },
+      noInitialRun:true,locateFile:file=>assetUrl(file),
       print:message=>console.log('[N64Wasm]',message),
       printErr:message=>console.warn('[N64Wasm]',message),
       onAbort:reason=>rejectRuntime(new Error('N64Wasm aborted: '+reason)),
@@ -142,7 +147,12 @@ export class N64WasmCore {
   }
   step(frame) {
     if(!this.ready) throw new Error('N64 core is not ready.');
-    this.setInput(frame); this.Module._runMainLoop(); this.frameCount+=1;
+    this.setInput(frame);
+    this.Module._runMainLoop();
+    // Force queued WebGL commands to complete before any canvas snapshot.
+    const gl = this.Module.canvas?.getContext('webgl2') || this.Module.canvas?.getContext('webgl') || this.Module.canvas?.getContext('experimental-webgl');
+    if (gl) gl.finish();
+    this.frameCount+=1;
     return this.captureVisualChange();
   }
   captureVisualChange() {
