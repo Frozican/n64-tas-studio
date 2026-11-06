@@ -28,8 +28,8 @@ $('#app').innerHTML = `
 <section class="panel recorder-panel">
 <div class="heading">RECORDING <span>VIDEO + AUDIO</span></div>
 <div class="recording-controls">
-<label>From <input id="recordFrom" type="number" inputmode="numeric" min="0" max="999999" step="1" enterkeyhint="done" autocomplete="off" aria-label="First frame to record" value="0"></label>
-<label>To <input id="recordTo" type="number" inputmode="numeric" min="0" max="999999" step="1" enterkeyhint="done" autocomplete="off" aria-label="Last frame to record" value="300"></label>
+<label for="recordFrom">From</label><input id="recordFrom" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="First frame to record" value="0">
+<label for="recordTo">To</label><input id="recordTo" type="text" inputmode="numeric" maxlength="6" enterkeyhint="done" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Last frame to record" value="300">
 <button id="recordButton" class="primary">● Record range</button>
 </div>
 <div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as a video with sound.</span></div>
