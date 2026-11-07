@@ -53,7 +53,7 @@ $('#app').innerHTML = `
       <input id="m64File" type="file" accept=".m64,application/octet-stream">
     </label>
     <div id="m64FileInfo" class="m64-file-info" aria-live="polite">No M64 file selected yet.</div>
-    <div class="notice warning m64-warning"><b>!</b><div><strong>Frame timing limitation</strong><p>M64 stores controller input samples, which are not guaranteed to correspond one-to-one with video frames. This converter maps each stored sample to one TAS Studio frame. The converted timing may therefore differ from the original movie. Multi-controller input should also be checked manually.</p></div></div>
+    <div class="notice warning m64-warning"><b>!</b><div><strong>Startup and frame timing are not yet correct</strong><p>The converter does not detect when the game has finished booting and does not automatically align the movie's first input with the game's ready state. An imported movie may therefore start too early or too late. M64 controller samples are also not guaranteed to correspond one-to-one with video frames; this converter maps each stored sample to one TAS Studio frame. The converted timing may differ from the original movie, and multi-controller input should be checked manually.</p></div></div>
     <div class="m64-convert-actions"><button id="convertM64" class="primary" type="button" disabled>Convert to .n64tas.json</button><span id="m64ConvertStatus" role="status">Select a valid M64 file to begin.</span></div>
   </article>
   <article class="panel m64-help">
