@@ -123,6 +123,7 @@ For local UI development, use `npm install` and `npm run dev`. To run a full loc
 
 - The emulator integration is experimental and game compatibility is not universal.
 - Deterministic replay and frame-perfect behavior have not been proven across games or ROM revisions.
+- M64 import does not detect game boot completion or align the first movie input to the game's ready state. Converted movies can start too early or too late; startup alignment remains a manual/unfinished step.
 - Audio/video synchronization remains unverified; the current one-frame audio delay is provisional.
 - PCM ring-buffer overruns can result in missing audio samples.
 - The AVI writer currently stores the audio stream as one chunk after the video chunks rather than continuously interleaving audio and video. Player compatibility and seeking behavior should be tested.
