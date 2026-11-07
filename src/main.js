@@ -1,5 +1,6 @@
 import './style.css';
 import { BUTTONS, createFrame, createProject, normalizeProject } from './tas/project.js';
+import { convertM64ToProject } from './tas/m64.js';
 import { N64WasmCore } from './emulator/n64wasm.js';
 
 let project = createProject();
@@ -17,6 +18,7 @@ const $ = selector => document.querySelector(selector);
 $('#app').innerHTML = `
 <header><div class="brand"><span class="logo">64</span><span>N64 <b>TAS STUDIO</b></span></div><div class="actions"><span class="status" id="coreStatus">● CORE NOT LOADED</span><button id="open">Open project</button><button class="primary" id="export">Export TAS</button><input hidden id="projectFile" type="file" accept=".json,.n64tas"></div></header>
 <main>
+<div id="editorPage">
 <section class="hero"><div><small>FRAME-BY-FRAME WORKBENCH</small><h1>Make every frame <em>count.</em></h1><p>Plan controller inputs, edit a timeline and build reproducible N64 TAS projects.</p></div><label class="rom"><input hidden id="romFile" type="file" accept=".z64,.n64,.v64"><b>＋ Choose your own N64 ROM</b><span id="romName">.z64 · .n64 · .v64 · selected locally only</span></label></section>
 <div class="notice warning"><b>!</b><div><strong>Experimental N64 core — frame stepping enabled</strong><p>The emulator is now driven one core frame at a time. Timeline playback and frame advance use the same stepping path. Game compatibility and repeatability still need testing with individual ROMs before treating a run as verified.</p></div></div>
 <section class="workspace">
@@ -34,6 +36,35 @@ $('#app').innerHTML = `
 </div>
 <div class="recording-progress"><div class="recording-progress-track"><div id="recordProgressBar"></div></div><span id="recordProgress">Choose a frame range to export as an AVI video.</span></div>
 <p class="hint">The selected range is exported as Motion-JPEG AVI at 60 FPS with captured 44.1 kHz stereo PCM audio. The game view does not need to be watched.</p>
+</section>
+</div>
+<nav class="page-navigation" aria-label="Studio pages">
+  <button id="showEditorPage" class="active" type="button">TAS STUDIO</button>
+  <button id="showM64Page" type="button">M64 CONVERTER</button>
+</nav>
+<section id="m64Page" class="m64-page" hidden>
+  <div class="m64-intro"><small>EXTRA TOOL · MOVIE IMPORT</small><h1>M64 <em>Converter.</em></h1><p>Convert a Mupen64 movie into an editable N64 TAS Studio project.</p></div>
+  <article class="panel m64-converter-panel">
+    <div class="heading">M64 INPUT FILE <span>LOCAL PROCESSING</span></div>
+    <label class="m64-drop" for="m64File">
+      <span class="m64-file-icon">M64</span>
+      <b>Choose an .m64 movie file</b>
+      <small>Files are processed locally in your browser and are not uploaded.</small>
+      <input id="m64File" type="file" accept=".m64,application/octet-stream">
+    </label>
+    <div id="m64FileInfo" class="m64-file-info" aria-live="polite">No M64 file selected yet.</div>
+    <div class="notice warning m64-warning"><b>!</b><div><strong>Frame timing limitation</strong><p>M64 stores controller input samples, which are not guaranteed to correspond one-to-one with video frames. This converter maps each stored sample to one TAS Studio frame. The converted timing may therefore differ from the original movie. Multi-controller input should also be checked manually.</p></div></div>
+    <div class="m64-convert-actions"><button id="convertM64" class="primary" type="button" disabled>Convert to .n64tas.json</button><span id="m64ConvertStatus" role="status">Select a valid M64 file to begin.</span></div>
+  </article>
+  <article class="panel m64-help">
+    <div class="heading">ABOUT THE CONVERSION <span>FORMAT NOTES</span></div>
+    <ul>
+      <li>Supports M64 versions 1, 2 and 3.</li>
+      <li>Converts digital buttons and analog stick X/Y values.</li>
+      <li>Uses the movie's ROM name and reported frame rate when available.</li>
+      <li>Does not include ROM data, video, audio or an M64 savestate.</li>
+    </ul>
+  </article>
 </section>
 <footer>N64 TAS STUDIO · EARLY PROTOTYPE <span>No ROMs included. Use legally obtained game files.</span></footer>
 </main><div id="toast" role="status" aria-live="polite"></div>`;
@@ -564,6 +595,63 @@ function completedDuration(frames) {
   return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
 }
 $('#recordButton').addEventListener('click', () => { void recordSelectedRange(); });
+
+
+let selectedM64Conversion = null;
+function showAppPage(page) {
+  const converter = page === 'm64';
+  $('#editorPage').hidden = converter;
+  $('#m64Page').hidden = !converter;
+  $('#showEditorPage').classList.toggle('active', !converter);
+  $('#showM64Page').classList.toggle('active', converter);
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+$('#showEditorPage').addEventListener('click', () => showAppPage('editor'));
+$('#showM64Page').addEventListener('click', () => showAppPage('m64'));
+
+$('#m64File').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  selectedM64Conversion = null;
+  $('#convertM64').disabled = true;
+  $('#m64ConvertStatus').textContent = 'Reading M64 file…';
+  if (!file) {
+    $('#m64FileInfo').textContent = 'No M64 file selected yet.';
+    $('#m64ConvertStatus').textContent = 'Select a valid M64 file to begin.';
+    return;
+  }
+  try {
+    const result = convertM64ToProject(await file.arrayBuffer(), file.name);
+    selectedM64Conversion = result;
+    const meta = result.metadata;
+    $('#m64FileInfo').textContent =
+      file.name + ' · M64 v' + meta.version +
+      ' · ' + meta.sampleCount.toLocaleString() + ' samples' +
+      ' · ' + meta.viCount.toLocaleString() + ' VIs' +
+      ' · ' + meta.fps + ' FPS' +
+      ' · ROM: ' + (meta.romName || 'unknown') +
+      ' · Controllers: ' + meta.controllerCount;
+    $('#m64ConvertStatus').textContent =
+      result.project.frames.length.toLocaleString() + ' project frames ready. Review the timing warning before using the result.';
+    $('#convertM64').disabled = false;
+  } catch (error) {
+    $('#m64FileInfo').textContent = file.name + ' · ' + (error.message || 'Could not read this M64 file.');
+    $('#m64ConvertStatus').textContent = 'Conversion unavailable. Choose a supported M64 file.';
+    toast(error.message || 'Could not read M64 file.');
+  }
+});
+$('#convertM64').addEventListener('click', () => {
+  if (!selectedM64Conversion) return;
+  const output = selectedM64Conversion.project;
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = (output.name || 'imported-m64').replace(/[^a-z0-9-_]+/gi, '-') + '.n64tas.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  $('#m64ConvertStatus').textContent = 'Converted project downloaded. Open it in TAS Studio with “Open project”.';
+  toast('M64 converted to N64 TAS Studio project.');
+});
 
 $('#open').addEventListener('click', () => $('#projectFile').click());
 $('#projectFile').addEventListener('change', async event => {
