@@ -58,7 +58,7 @@ export function convertM64ToProject(buffer, fileName = 'Imported M64') {
   }
 
   const romName = readCString(bytes, 0xC4, 32) || '';
-  const cleanName = (fileName || 'Imported M64').replace(/\\.m64$/i, '').trim() || 'Imported M64';
+  const cleanName = (fileName || 'Imported M64').replace(/\.m64$/i, '').trim() || 'Imported M64';
   const project = createProject(cleanName);
   project.fps = Math.max(1, Math.min(120, fps));
   project.romName = romName || null;
