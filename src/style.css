@@ -120,3 +120,32 @@
 .recording-field label{display:block;color:#aeb6c8;font-size:12px;pointer-events:auto}
 .recording-field input{display:block;width:100%;min-width:0;min-height:48px;background:#0c1019;border:1px solid #343b4d;border-radius:7px;padding:10px;color:#f1f2f8;font:16px 'DM Mono',monospace;pointer-events:auto;user-select:text;-webkit-user-select:text;touch-action:manipulation}
 .recording-controls #recordButton{grid-column:1/-1;min-height:48px}
+
+
+/* Bottom page navigation and M64 converter page */
+.page-navigation{display:flex;justify-content:center;gap:8px;margin-top:22px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#111621}
+.page-navigation button{min-width:150px;min-height:42px;color:#aeb6c8;background:#171d2a;border-color:#343b4d}
+.page-navigation button.active{background:#302748;color:#e9e2ff;border-color:#8b75df;box-shadow:inset 0 -2px #b9a8ff}
+.m64-page{padding-top:22px}
+.m64-page[hidden],#editorPage[hidden]{display:none!important}
+.m64-intro{margin:0 0 18px}
+.m64-intro>small{color:var(--purple)}
+.m64-intro h1{font-size:clamp(30px,4vw,42px);letter-spacing:-.06em;margin:9px 0 7px}
+.m64-intro h1 em{font-style:normal;color:var(--purple)}
+.m64-intro p{font-size:12px;line-height:1.6;color:#a3abc0;margin:0}
+.m64-converter-panel{padding-bottom:16px}
+.m64-drop{position:relative;display:flex;align-items:center;flex-direction:column;gap:8px;margin:16px;padding:30px 16px;border:1px dashed #66578f;border-radius:11px;background:linear-gradient(145deg,#1a1730,#111621);text-align:center;cursor:pointer}
+.m64-drop:hover{border-color:#b9a8ff;background:#211b39}
+.m64-drop b{font-size:13px;color:#eeeaff}
+.m64-drop small{font:10px Manrope,sans-serif;letter-spacing:0;color:var(--muted)}
+.m64-file-icon{display:grid;place-items:center;width:52px;height:40px;border-radius:8px;background:#302748;border:1px solid #7160a6;color:#d9ceff;font:700 13px 'DM Mono',monospace}
+#m64File{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+.m64-file-info{margin:0 16px;padding:12px;border:1px solid #2d3546;border-radius:8px;background:#0d111a;color:#c7cde0;font:10px/1.7 'DM Mono',monospace;overflow-wrap:anywhere}
+.m64-warning{margin:14px 16px}
+.m64-convert-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 16px}
+.m64-convert-actions button{min-height:46px}
+.m64-convert-actions button:disabled{opacity:.4;cursor:not-allowed}
+.m64-convert-actions span{font-size:10px;line-height:1.5;color:var(--muted)}
+.m64-help{margin-top:16px;padding-bottom:12px}
+.m64-help ul{margin:12px 16px 4px;padding-left:19px;color:#aeb6c8;font-size:11px;line-height:1.9}
+@media(max-width:560px){.page-navigation{position:sticky;bottom:8px;z-index:4;margin:16px -2px 0;box-shadow:0 6px 24px #0008}.page-navigation button{min-width:0;flex:1;font-size:10px}.m64-drop{margin:12px;padding:25px 12px}.m64-warning{margin:12px}.m64-convert-actions{align-items:stretch;flex-direction:column}.m64-convert-actions button{width:100%}}
