@@ -10,6 +10,7 @@ A mobile-friendly, browser-based workbench for Nintendo 64 tool-assisted speedru
 - **Timeline navigation:** Select a frame and restore/replay from a saved checkpoint where available.
 - **Project files:** Import and export TAS project data as JSON-based `.n64tas.json` files.
 - **AVI recording:** Record an inclusive frame range as Motion-JPEG video at 60 FPS with captured 44.1 kHz, 16-bit stereo PCM audio.
+- **M64 conversion:** Import Mupen64 movie inputs into a TAS project. Startup timing is not aligned automatically: the converter cannot detect when a game has finished booting, so an imported movie may begin too early or too late.
 
 ## Emulator and frame stepping
 
